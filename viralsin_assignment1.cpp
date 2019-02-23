@@ -25,6 +25,11 @@
 #include <string.h>
 #include "../include/global.h"
 #include "../include/logger.h"
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 
 using namespace std;
 
@@ -37,6 +42,7 @@ using namespace std;
  */
 
 int printAuthor(char *);
+int getIP(char *);
 int main(int argc, char **argv)
 {
 	/*Init. Logger*/
@@ -56,22 +62,40 @@ int main(int argc, char **argv)
 		break;
 
 	if(cmd == "IP")
-		getPort();
+		getIP("IP");
 	}
 	return 0;
 }
 
-int getIP()
+int getIP(char *cmd)
 {
-	int sockFd;
+	int sockFd, addressStatus;
+	char ipstr[INET6_ADDRSTRLEN];
 	struct  addrinfo hints;
 	struct  addrinfo *addressInfo;
 	memset(&hints,0,sizeof hints);
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_DGRAM;
 	hints.ai_flags = AI_PASSIVE;
-	//if()
-	
+	if(addressStatus = getaddrinfo("8.8.8.8","53",&hints,&addressInfo)){
+		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(addressStatus));
+	}
+
+	if((sockFd = socket(addressInfo->ai_family, addressInfo->ai_socktype, addressInfo->ai_protocol))== -1)
+	{
+		perror("listener: socket");
+	}
+
+	connect(sockFd,addressInfo->ai_addr,addressInfo->ai_addrlen);
+	struct sockaddr_in name;
+	socklen_t namelen = sizeof(name);
+	getsockname(sockFd,(struct sockaddr *)&name,&namelen);
+	char buf[100];
+	inet_ntop(addressInfo->ai_family, &name.sin_addr, buf, sizeof buf);
+	cse4589_print_and_log("[%s:SUCCESS]\n",cmd);
+	cse4589_print_and_log("IP:%s\n",buf);
+	cse4589_print_and_log("[%s:END]\n",cmd);
+	return 0;
 }
 
 int printAuthor(char *authorName)
