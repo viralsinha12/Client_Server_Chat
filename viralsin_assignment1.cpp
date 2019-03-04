@@ -130,7 +130,7 @@ void printAuthor(char *authorName)
 
 void commonPrintFunction(char *command, char *output)
 {
-https://anotepad.com	cse4589_print_and_log("[%s:SUCCESS]\n",command);
+	cse4589_print_and_log("[%s:SUCCESS]\n",command);
 	cse4589_print_and_log("%s:%s\n",command,output);
 	cse4589_print_and_log("[%s:END]\n",command);
 }
@@ -196,14 +196,14 @@ void loginToServer(char *argv1)
 				if(tokens[0].compare("SEND")==0)
 				{
 					//cout<<"inside send"<<endl;
-					if(send(sockFd,tokens[1].c_str(),tokens[1].length(),0)==-1)
+					if(send(sockFd,tokens[1].c_str(),tokens[1].length(),0) == -1)
 					perror("send");
 					//memset(bufferString,'\0',sizeof(bufferString));
 				}
 				if(tokens[0].compare("BROADCAST")==0)
 				{
 					//cout
-					if(send(sockFd,tokens[1].c_str(),tokens[1].length(),0)==-1)
+					if(send(sockFd,line.c_str(),line.length(),0) == -1)
 					perror("send");
 
 				}
@@ -276,13 +276,15 @@ void startServer()
 					char buff[1000];
 					memset(buff,'\0',sizeof buff);
 					int lenOfData = recv(i,buff,sizeof(buff),0);
-					cout<<buff<<endl;
+					cout<<"Message  : "<<buff<<endl;
+					cout<<"compare result : "<<strncmp(buff,"BROADCAST",9)<<endl;
 					if(lenOfData==-1){
 						perror("recv");
 					}
 					else
 					{
 						if(strncmp(buff,"BROADCAST",9)!=0){
+						cout<<"Send section "<<endl;		
 						struct sockaddr_in *connectedIp;
 						socklen_t len = sizeof connectedIp;	
 						buff[lenOfData] = '\0';
@@ -305,28 +307,36 @@ void startServer()
 								}		
 							}
 						}	
-					else
-					{
-						for(int j=0;j<=fdMax;j++)
+						else
 						{
-							if(FD_ISSET(j,&master))
+							cout<<"Broadcast section"<<endl;	
+							string line = buff;
+							stringstream check1(line);
+							string intr;
+							vector<string> tokens;
+							while(getline(check1,intr, ' '))
 							{
-								if(j!=i && j!=sockFd)
+								tokens.push_back(intr);
+								//cout<<line<<endl;
+							}	
+
+							for(int j=0;j<=fdMax;j++)
+							{
+								if(FD_ISSET(j,&master))
 								{
-									//cout<<"third";
-									if(send(j,buff,strlen(buff),0)==-1)
-										perror("send");	
+									if(j!=i && j!=sockFd)
+									{
+										if(send(j,tokens[1].c_str(),tokens[1].length(),0)==-1)
+											perror("send");	
+									}
 								}
-							}
-						}					
-					}		
-					
+							}					
+						}							
+					}
 				}
 			}
-		
-		}
+		}	
 	}	
-}	
 }
 void sendMessage(int sockFd)
 {
