@@ -47,12 +47,14 @@ using namespace std;
 
 void printAuthor(char *);
 void getIP(char *);
-void commonPrintFunction(char *, char *);
+void commonPrintFunctionForSuccess(char *, const char *);
+void commonPrintFunctionForError(char *, const char *);
 void getPortforServer(char *,char *);
 void loginToServer(char *);
 void startServer();
 void sendMessage(int);
-
+string ltrim(const string);
+string rtrim(const string);
 int main(int argc, char **argv)
 {
 	/*Init. Logger*/
@@ -119,19 +121,25 @@ void getIP(char *cmd)
 	getsockname(sockFd,(struct sockaddr *)&name,&namelen);
 	char buf[100];
 	inet_ntop(addressInfo->ai_family, &name.sin_addr, buf, sizeof buf);
-	commonPrintFunction("IP",buf);
+	//commonPrintFunction("IP",buf);
 }
 
 void printAuthor(char *authorName)
 {
 	char *myString = "I, Viral Sinha, have read and understood the course academic integrity policy.";
-	commonPrintFunction("AUTHOR",myString);
+	//commonPrintFunction("AUTHOR",myString);
 }
 
-void commonPrintFunction(char *command, char *output)
+void commonPrintFunctionForSuccess(char *command,const char *output)
 {
 	cse4589_print_and_log("[%s:SUCCESS]\n",command);
 	cse4589_print_and_log("%s:%s\n",command,output);
+	cse4589_print_and_log("[%s:END]\n",command);
+}
+
+void commonPrintFunctionForError(char *command)
+{
+	cse4589_print_and_log("[%s:Error]\n",command);
 	cse4589_print_and_log("[%s:END]\n",command);
 }
 
@@ -178,13 +186,34 @@ void loginToServer(char *argv1)
 			vector<string> tokens;
 			string line;
 			getline(cin,line);
-			stringstream check1(line);
 			string intr;
-			while(getline(check1,intr, ' '))
+
+			if(line.find("SEND")!= string::npos)
 			{
-				tokens.push_back(intr);
-				//cout<<line<<endl;
+				line.insert(4,"^");
+				stringstream check1(line);
+				while(getline(check1,intr, '^'))
+				{
+					tokens.push_back(rtrim(ltrim(intr)));
+					//cout<<line<<endl;
+				}
 			}
+
+			if(line.find("BROADCAST")!= string::npos)
+			{
+				line.insert(9,"^");
+				stringstream check1(line);
+				// stringstream check1(line);
+				// cout<<line<<endl;
+				while(getline(check1,intr,'^'))
+				{
+					tokens.push_back(rtrim(ltrim(intr)));
+					//cout<<line<<endl;
+				}
+			}
+
+			
+			
 			//cin.clear();
 			/*char bufferString[1000];
 			memset(bufferString,'\0',sizeof(bufferString));
@@ -203,9 +232,14 @@ void loginToServer(char *argv1)
 				if(tokens[0].compare("BROADCAST")==0)
 				{
 					//cout
-					if(send(sockFd,line.c_str(),line.length(),0) == -1)
-					perror("send");
-
+					if(send(sockFd,line.c_str(),line.length(),0) == -1){
+						commonPrintFunctionForError("BROADCAST");
+					//perror("send");
+					}
+					else
+					{
+						commonPrintFunctionForSuccess("BROADCAST",tokens[1].c_str());
+					}
 				}
 			}
 		}
@@ -220,7 +254,7 @@ void loginToServer(char *argv1)
 				if(recvLen >0)
 				{
 					buff[recvLen]='\0';
-					cout<<buff<<endl;
+					cse4589_print_and_log("msg from:\n[msg]:%s\n",buff);
 					memset(buff,'\0',sizeof buff);
 
 				}
@@ -309,14 +343,16 @@ void startServer()
 						}	
 						else
 						{
-							cout<<"Broadcast section"<<endl;	
+							int error = 0;
 							string line = buff;
 							stringstream check1(line);
 							string intr;
 							vector<string> tokens;
-							while(getline(check1,intr, ' '))
+							while(getline(check1,intr, '^'))
 							{
-								tokens.push_back(intr);
+								//size_t end = s.find_last_not_of(WHITESPACE);
+								
+								tokens.push_back(rtrim(ltrim(intr)));
 								//cout<<line<<endl;
 							}	
 
@@ -327,7 +363,16 @@ void startServer()
 									if(j!=i && j!=sockFd)
 									{
 										if(send(j,tokens[1].c_str(),tokens[1].length(),0)==-1)
-											perror("send");	
+										{	
+											commonPrintFunctionForError("BROADCAST");
+											error=1;
+										}
+										else
+										{
+											cse4589_print_and_log("[BROADCAST:SUCCESS]\n");
+											cse4589_print_and_log("msg from:, to:255.255.255.255 \n[msg]:%s\n", tokens[1].c_str());
+											cse4589_print_and_log("[BROADCAST:END]\n");
+										}
 									}
 								}
 							}					
@@ -352,3 +397,14 @@ void sendMessage(int sockFd)
 	return ip4;
 }*/ 
 
+string ltrim(string s)
+{
+	size_t start = s.find_first_not_of(" ");
+	return (start == string::npos) ? "" : s.substr(start);
+}
+
+string rtrim(string s)
+{
+	size_t end = s.find_last_not_of(" ");
+	return (end == string::npos) ? "" : s.substr(0, end + 1);
+}
