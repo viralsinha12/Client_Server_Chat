@@ -33,7 +33,8 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <sys/time.h>
-
+#include <vector>
+#include <sstream>
 using namespace std;
 
 /**
@@ -129,7 +130,7 @@ void printAuthor(char *authorName)
 
 void commonPrintFunction(char *command, char *output)
 {
-	cse4589_print_and_log("[%s:SUCCESS]\n",command);
+https://anotepad.com	cse4589_print_and_log("[%s:SUCCESS]\n",command);
 	cse4589_print_and_log("%s:%s\n",command,output);
 	cse4589_print_and_log("[%s:END]\n",command);
 }
@@ -143,11 +144,8 @@ void loginToServer(char *argv1)
 	fd_set write_fds;
 	FD_ZERO(&master);
 	FD_ZERO(&write_fds);
-	//FD_SET(sockFd,&master);	
 	FD_SET(0,&master);
-//	FD_SET(STDOUT_FILENO,&master);
 	fdMax = STDIN_FILENO;
-	//int sockFd, addressStatus;
 	char ipstr[INET_ADDRSTRLEN];
 	struct  addrinfo hints;
 	struct  addrinfo *addressInfo;
@@ -177,16 +175,37 @@ void loginToServer(char *argv1)
 		select(fdMax+1,&write_fds,NULL,NULL,0);
 		if(FD_ISSET(0,&write_fds))
 		{
-			char bufferString[1000];
+			vector<string> tokens;
+			string line;
+			getline(cin,line);
+			stringstream check1(line);
+			string intr;
+			while(getline(check1,intr, ' '))
+			{
+				tokens.push_back(intr);
+				//cout<<line<<endl;
+			}
+			//cin.clear();
+			/*char bufferString[1000];
 			memset(bufferString,'\0',sizeof(bufferString));
-			int readLen = read(0,bufferString,sizeof(bufferString));
-			if(readLen>0)
-			{		
-				if(strncmp(bufferString,"SEND",4)==0)
+			int readLen = read(0,bufferString,sizeof(bufferString));*/
+			if(line.length()>0)
+			{
+				//cout<<line<<endl;	
+				//cout<<tokens[1]<<endl;	
+				if(tokens[0].compare("SEND")==0)
 				{
-					if(send(sockFd,"hello clients",20,0)==-1)
+					//cout<<"inside send"<<endl;
+					if(send(sockFd,tokens[1].c_str(),tokens[1].length(),0)==-1)
 					perror("send");
-					memset(bufferString,'\0',sizeof(bufferString));
+					//memset(bufferString,'\0',sizeof(bufferString));
+				}
+				if(tokens[0].compare("BROADCAST")==0)
+				{
+					//cout
+					if(send(sockFd,tokens[1].c_str(),tokens[1].length(),0)==-1)
+					perror("send");
+
 				}
 			}
 		}
@@ -257,11 +276,37 @@ void startServer()
 					char buff[1000];
 					memset(buff,'\0',sizeof buff);
 					int lenOfData = recv(i,buff,sizeof(buff),0);
-					if(lenOfData==-1)
+					cout<<buff<<endl;
+					if(lenOfData==-1){
 						perror("recv");
+					}
 					else
 					{
+						if(strncmp(buff,"BROADCAST",9)!=0){
+						struct sockaddr_in *connectedIp;
+						socklen_t len = sizeof connectedIp;	
 						buff[lenOfData] = '\0';
+							for(int j=0;j<=fdMax;j++)
+							{
+								if((getpeername(j,(struct sockaddr *)&connectedIp,&len)!=-1))
+								{
+									char ipBuf[INET_ADDRSTRLEN];
+									struct sockaddr_in *ipv4 = (struct sockaddr_in *)&connectedIp;
+									void *addr = &ipv4->sin_addr; 
+									inet_ntop(AF_INET,addr,ipBuf, sizeof ipBuf);
+								//	cout<<"IP : "<<ipBuf<<endl;	
+									if(strcmp(ipBuf,buff)==0)
+									{
+										if(send(j,"buff",strlen(buff),0)==-1)
+											perror("SEND");
+										else
+											break;
+									}
+								}		
+							}
+						}	
+					else
+					{
 						for(int j=0;j<=fdMax;j++)
 						{
 							if(FD_ISSET(j,&master))
@@ -273,22 +318,27 @@ void startServer()
 										perror("send");	
 								}
 							}
-						}						
-					}
+						}					
+					}		
+					
 				}
 			}
 		
 		}
 	}	
 }	
-
+}
 void sendMessage(int sockFd)
 {
 	send(sockFd,"hello clients",20,0);	
 	cout<<"Message sent";
 }					
 				
-
-
-
+/*char* getPresentableIp(short int ipFamily, struct in_addr addr)
+{
+	char ip4[INET_ADDRSTRLEN];
+	if(inet_ntop(ipFamily,addr,ip4,sizeof ip4)==-1)
+		perror("ntop");
+	return ip4;
+}*/ 
 
