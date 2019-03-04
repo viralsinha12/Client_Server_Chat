@@ -143,8 +143,8 @@ void loginToServer(char *argv1)
 	fd_set write_fds;
 	FD_ZERO(&master);
 	FD_ZERO(&write_fds);
-	FD_SET(sockFd,&master);	
-	FD_SET(STDIN_FILENO,&master);
+	//FD_SET(sockFd,&master);	
+	FD_SET(0,&master);
 //	FD_SET(STDOUT_FILENO,&master);
 	fdMax = STDIN_FILENO;
 	//int sockFd, addressStatus;
@@ -161,41 +161,40 @@ void loginToServer(char *argv1)
 	if((sockFd = socket(addressInfo->ai_family, addressInfo->ai_socktype, addressInfo->ai_protocol))== -1)
 		perror("listener: socket");
 
+	FD_SET(sockFd,&master);	
+
+	if(sockFd > fdMax)
+		fdMax = sockFd;
 	
 	if(connect(sockFd,addressInfo->ai_addr,addressInfo->ai_addrlen)==-1)
 		perror("Error");
 	
-
+	cout<<"connection"<<endl;
 
 	while(1)
 	{
 		write_fds = master;
-		int selValue = select(fdMax+1,&write_fds,NULL,NULL,0);
-		if(FD_ISSET(STDIN_FILENO,&write_fds))
+		select(fdMax+1,&write_fds,NULL,NULL,0);
+		if(FD_ISSET(0,&write_fds))
 		{
 			char bufferString[1000];
 			memset(bufferString,'\0',sizeof(bufferString));
-			int readLen = read(STDIN_FILENO,bufferString,sizeof(bufferString));
-			
+			int readLen = read(0,bufferString,sizeof(bufferString));
 			if(readLen>0)
 			{		
 				if(strncmp(bufferString,"SEND",4)==0)
 				{
-					//cout<<sockFd<<endl;
-					//sendMessage(sockFd);
 					if(send(sockFd,"hello clients",20,0)==-1)
 					perror("send");
 					memset(bufferString,'\0',sizeof(bufferString));
-
 				}
 			}
 		}
 		else
 		{
-			cout<<"receving data";
+
 			if(FD_ISSET(sockFd,&write_fds))
 			{
-				cout<<"receiving data";
 				char buff[1000];
 				memset(buff,'\0',sizeof buff);
 				int recvLen = recv(sockFd,buff,sizeof(buff),0);
@@ -204,11 +203,8 @@ void loginToServer(char *argv1)
 					buff[recvLen]='\0';
 					cout<<buff<<endl;
 					memset(buff,'\0',sizeof buff);
+
 				}
-			}
-			else
-			{
-				cout<<"which socket"<<endl;
 			}
 		}	
 	}
@@ -237,7 +233,7 @@ void startServer()
 	FD_SET(sockFd, &master);
 	fdMax = sockFd;
 	listen(sockFd, 5);
-
+	
 	while(1)
 	{
 		read_fds = master;	
@@ -266,17 +262,15 @@ void startServer()
 					else
 					{
 						buff[lenOfData] = '\0';
-						//cout<<"fdMax : "<<fdMax<<endl;
 						for(int j=0;j<=fdMax;j++)
 						{
-							//cout<<"J : "<<j<<endl;
 							if(FD_ISSET(j,&master))
 							{
-								//cout<<"second";
 								if(j!=i && j!=sockFd)
 								{
 									//cout<<"third";
-									send(j,buff,strlen(buff),0);		
+									if(send(j,buff,strlen(buff),0)==-1)
+										perror("send");	
 								}
 							}
 						}						
