@@ -46,12 +46,12 @@ using namespace std;
  * @return 0 EXIT_SUCCESS
  */
 
-void printAuthor(char *);
+void printAuthor();
 void getIP(char *,int);
 void commonPrintFunctionForSuccess(char *, const char *);
 void commonPrintFunctionForError(char *, const char *);
 void getPortforServer(char *,char *);
-void loginToServer(char *);
+void loginToServer(string,string);
 void startServer();
 int sendMessage(string,int);
 void receiveAndRelay(string,int,int,int,fd_set);
@@ -78,33 +78,40 @@ int main(int argc, char **argv)
 
     else
     {
-    		/*string cmd;
-		while(true)
+    	while(true)
 		{
-			cout << "\n#chat# : ";
-			cin >> cmd;
-			if(cmd == "AUTHOR")
-				printAuthor("AUTHOR");
+	    	string intr,input;
+	    	vector<string> commandTokens;
+	    	getline(cin,input);
+	    	stringstream ss(input);
+	    	while(getline(ss,intr,' '))
+    		{
+    			commandTokens.push_back(intr);
+    		}
+		
+			if(commandTokens[0] == "AUTHOR")
+				printAuthor();
 
-			if(cmd == "EXIT")
+			if(commandTokens[0] == "EXIT")
 				break;
 
-			if(cmd == "IP")
-				getIP("IP");
+			if(commandTokens[0] == "IP")
+				getIP("IP",1);
 			
-			if(cmd == "PORT")
+			if(commandTokens[0] == "PORT")
 			{
-				commonPrintFunction("PORT",argv[2]);
+				commonPrintFunctionForSuccess("PORT",argv[2]);
 			}
 
-			if(cmd == "LOGIN" && (strcmp(argv[1],"c")==0))
+			if(commandTokens[0] == "LOGIN")
 			{
-				loginToServer();
-				//cout<<"connected";
+				loginToServer(commandTokens[1],commandTokens[2]);
 			}
-		}*/
-		
-                                loginToServer(argv[1]);
+			if(commandTokens[0] == "LIST")
+			{
+				//
+			}
+		}
 	}
 	return 0;
 }
@@ -133,10 +140,10 @@ void getIP(char *cmd,int print)
 		commonPrintFunctionForSuccess("IP",systemIp);
 }
 
-void printAuthor(char *authorName)
+void printAuthor()
 {
-	char *myString = "I, Viral Sinha, have read and understood the course academic integrity policy.";
-	//commonPrintFunction("AUTHOR",myString);
+	string authorString = ("I, viralsin, have read and understood the course academic integrity policy.\n");
+	commonPrintFunctionForSuccess("AUTHOR",authorString.c_str());
 }
 
 void commonPrintFunctionForSuccess(char *command,const char *output)
@@ -152,7 +159,7 @@ void commonPrintFunctionForError(char *command)
 	cse4589_print_and_log("[%s:END]\n",command);
 }
 
-void loginToServer(char *argv1)
+void loginToServer(string ip,string port)
 {
 	int fdMax;
 	int sockFd, addressStatus;
@@ -170,7 +177,7 @@ void loginToServer(char *argv1)
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
-	if(addressStatus = getaddrinfo("128.205.36.46","3453",&hints,&addressInfo))
+	if(addressStatus = getaddrinfo(ip.c_str(),port.c_str(),&hints,&addressInfo))
 		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(addressStatus));
 
 	if((sockFd = socket(addressInfo->ai_family, addressInfo->ai_socktype, addressInfo->ai_protocol))== -1)
@@ -182,7 +189,15 @@ void loginToServer(char *argv1)
 		fdMax = sockFd;
 	
 	if(connect(sockFd,addressInfo->ai_addr,addressInfo->ai_addrlen)==-1)
-		perror("Error");
+	{
+		cse4589_print_and_log("[LOGIN:ERROR]\n");
+		cse4589_print_and_log("[LOGIN:END]\n");
+	}
+	else
+	{
+		cse4589_print_and_log("[LOGIN:SUCCESS]\n");
+		cse4589_print_and_log("[LOGIN:END]\n");
+	}
 	
 	//cout<<"connection on : "<<sockFd<<endl;
 
@@ -232,6 +247,14 @@ void loginToServer(char *argv1)
 					cse4589_print_and_log("[BROADCAST:END]\n");
 				}
 			}
+			if(tokens[0]=="AUTHOR")
+				printAuthor();
+			if(tokens[0]=="IP")
+				getIP("IP",1);
+			if(tokens[0]=="LOGOUT")
+				break;
+			if(tokens[0]=="EXIT")
+				exit(0);
 		}
 		else
 		{
@@ -254,7 +277,6 @@ void loginToServer(char *argv1)
 					cse4589_print_and_log("msg from:%s\n[msg]:%s\n",sendersIp.c_str(),originalMessage.c_str());
 					cse4589_print_and_log("[RECEIVED:END]\n");
 					memset(buff,'\0',sizeof(buff));
-
 				}
 			}
 		}	
