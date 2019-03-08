@@ -36,6 +36,8 @@
 #include <vector>
 #include <sstream>
 #include <stdlib.h>
+#include <algorithm>
+#include<msgpack.hpp>
 using namespace std;
 
 /**
@@ -51,18 +53,33 @@ void getIP(char *,int);
 void commonPrintFunctionForSuccess(char *, const char *);
 void commonPrintFunctionForError(char *, const char *);
 void getPortforServer(char *,char *);
-void loginToServer(string,string);
-void startServer();
+void loginToServer(string,string,string);
+void startServer(string);
 int sendMessage(string,int);
 void receiveAndRelay(string,int,int,int,fd_set);
 void unicastMessage(string,string,int);
 void broadcastMessage(string,string,int,int,int,fd_set);
 string getOriginalMessage(string);
 string getSendersIp(string);
+
+struct loggedInDetails{
+		string name;
+		string ip;
+		int port;
+		MSGPACK_DEFINE(name,ip,port);
+};
+bool comparePorts(loggedInDetails first,loggedInDetails second)
+{
+    return first.port < second.port;
+}
+vector<loggedInDetails> getDetailsOfConnectedClients(int,int);
+
+int getSocketFdFromIp(int,string);
 string ltrim(const string);
 string rtrim(const string);
-
 char systemIp[INET_ADDRSTRLEN];
+int clientLoggedIn = 0;
+vector<loggedInDetails> clientList;
 
 int main(int argc, char **argv)
 {
@@ -73,7 +90,7 @@ int main(int argc, char **argv)
    
     if(strcmp(argv[1],"s")== 0)
     {
-    	  startServer();
+    	  startServer(argv[2]);
     }
 
     else
@@ -105,11 +122,7 @@ int main(int argc, char **argv)
 
 			if(commandTokens[0] == "LOGIN")
 			{
-				loginToServer(commandTokens[1],commandTokens[2]);
-			}
-			if(commandTokens[0] == "LIST")
-			{
-				//
+				loginToServer(commandTokens[1],commandTokens[2],argv[2]);
 			}
 		}
 	}
@@ -142,8 +155,9 @@ void getIP(char *cmd,int print)
 
 void printAuthor()
 {
-	string authorString = ("I, viralsin, have read and understood the course academic integrity policy.\n");
-	commonPrintFunctionForSuccess("AUTHOR",authorString.c_str());
+	cse4589_print_and_log("[AUTHOR:SUCCESS]\n");
+	cse4589_print_and_log("I, viralsin, have read and understood the course academic integrity policy.\n");
+	cse4589_print_and_log("[AUTHOR:END]\n");
 }
 
 void commonPrintFunctionForSuccess(char *command,const char *output)
@@ -159,11 +173,10 @@ void commonPrintFunctionForError(char *command)
 	cse4589_print_and_log("[%s:END]\n",command);
 }
 
-void loginToServer(string ip,string port)
+void loginToServer(string ip,string port,string lport)
 {
 	int fdMax;
 	int sockFd, addressStatus;
-
 	fd_set master;
 	fd_set write_fds;
 	FD_ZERO(&master);
@@ -173,11 +186,12 @@ void loginToServer(string ip,string port)
 	char ipstr[INET_ADDRSTRLEN];
 	struct  addrinfo hints;
 	struct  addrinfo *addressInfo;
+	struct  addrinfo *bindaddressInfo;
 	memset(&hints,0,sizeof(hints));
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
-	if(addressStatus = getaddrinfo(ip.c_str(),port.c_str(),&hints,&addressInfo))
+	if(getaddrinfo(ip.c_str(),port.c_str(),&hints,&addressInfo)==-1)
 		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(addressStatus));
 
 	if((sockFd = socket(addressInfo->ai_family, addressInfo->ai_socktype, addressInfo->ai_protocol))== -1)
@@ -187,107 +201,134 @@ void loginToServer(string ip,string port)
 
 	if(sockFd > fdMax)
 		fdMax = sockFd;
-	
+
+	getaddrinfo(NULL,lport.c_str(),&hints,&bindaddressInfo);
+    bind(sockFd, bindaddressInfo->ai_addr, bindaddressInfo->ai_addrlen);
+
 	if(connect(sockFd,addressInfo->ai_addr,addressInfo->ai_addrlen)==-1)
 	{
+		clientLoggedIn=0;
 		cse4589_print_and_log("[LOGIN:ERROR]\n");
 		cse4589_print_and_log("[LOGIN:END]\n");
 	}
 	else
 	{
+		clientLoggedIn=1;
 		cse4589_print_and_log("[LOGIN:SUCCESS]\n");
 		cse4589_print_and_log("[LOGIN:END]\n");
-	}
-	
-	//cout<<"connection on : "<<sockFd<<endl;
-
-	while(1)
-	{
-		write_fds = master;
-		select(fdMax+1,&write_fds,NULL,NULL,0);
-		if(FD_ISSET(0,&write_fds))
+		while(1)
 		{
-			vector<string> tokens;
-			string input,tmp,rest,intr;
-			getline(cin,input);
-			stringstream ss(input);
-			int i=0;
-			while(getline(ss,intr,' '))
+			write_fds = master;
+			select(fdMax+1,&write_fds,NULL,NULL,0);
+			if(FD_ISSET(0,&write_fds))
 			{
-				if(i<1)
-					tokens.push_back(intr);
-				i++;
+				vector<string> tokens;
+				string input,tmp,rest,intr;
+				getline(cin,input);
+				stringstream ss(input);
+				int i=0;
+				while(getline(ss,intr,' '))
+				{
+					if(i<1)
+						tokens.push_back(intr);
+					i++;
+				}
+				
+				if(tokens[0]=="SEND" && clientLoggedIn == 1)
+				{
+					int retValue = sendMessage(input,sockFd);
+					if(retValue == -1)
+					{
+						cse4589_print_and_log("[SEND:ERROR]\n");
+						cse4589_print_and_log("[SEND:END]\n");
+					}
+					else
+					{
+						cse4589_print_and_log("[SEND:SUCCESS]\n");
+						cse4589_print_and_log("[SEND:END]\n");
+					}
+				}
+				if(tokens[0]=="BROADCAST" && clientLoggedIn==1)
+				{
+					int retValue = sendMessage(input,sockFd);
+					if(retValue == -1)
+					{
+						cse4589_print_and_log("[BROADCAST:ERROR]\n");
+						cse4589_print_and_log("[BROADCAST:END]\n");
+					}
+					else
+					{
+						cse4589_print_and_log("[BROADCAST:SUCCESS]\n");
+						cse4589_print_and_log("[BROADCAST:END]\n");
+					}
+				}
+				if(tokens[0]=="AUTHOR")
+					printAuthor();
+				if(tokens[0]=="IP")
+					getIP("IP",1);
+				if(tokens[0]=="LOGOUT" && clientLoggedIn==1){
+					clientLoggedIn=0;
+					break;
+				}
+				if(tokens[0]=="EXIT"){
+					clientLoggedIn=0;
+					exit(0);
+				}
+				if(tokens[0]=="LIST"){
+					for(int i =0;i<clientList.size();i++)
+					{
+						if(i==0)
+							cse4589_print_and_log("[LIST:SUCCESS]\n");
+						cse4589_print_and_log("%-5d%-35s%-20s%-8d\n",i+1, clientList[i].name.c_str(), clientList[i].ip.c_str(),clientList[i].port);
+						if(i==clientList.size()-1)
+							cse4589_print_and_log("[LIST:END]\n");
+					}
+				}
 			}
-			
-			if(tokens[0]=="SEND")
+			else
 			{
-				int retValue = sendMessage(input,sockFd);
-				if(retValue == -1)
+				if(FD_ISSET(sockFd,&write_fds))
 				{
-					cse4589_print_and_log("[SEND:ERROR]\n");
-					cse4589_print_and_log("[SEND:END]\n");
-				}
-				else
-				{
-					cse4589_print_and_log("[SEND:SUCCESS]\n");
-					cse4589_print_and_log("[SEND:END]\n");
-				}
-			}
-			if(tokens[0]=="BROADCAST")
-			{
-				int retValue = sendMessage(input,sockFd);
-				if(retValue == -1)
-				{
-					cse4589_print_and_log("[BROADCAST:ERROR]\n");
-					cse4589_print_and_log("[BROADCAST:END]\n");
-				}
-				else
-				{
-					cse4589_print_and_log("[BROADCAST:SUCCESS]\n");
-					cse4589_print_and_log("[BROADCAST:END]\n");
-				}
-			}
-			if(tokens[0]=="AUTHOR")
-				printAuthor();
-			if(tokens[0]=="IP")
-				getIP("IP",1);
-			if(tokens[0]=="LOGOUT")
-				break;
-			if(tokens[0]=="EXIT")
-				exit(0);
-		}
-		else
-		{
-
-			if(FD_ISSET(sockFd,&write_fds))
-			{
-				char buff[1000];
-				memset(buff,'\0',sizeof(buff));
-				int recvLen = recv(sockFd,buff,sizeof(buff),0);
-
-				if(recvLen >0)
-				{
-					buff[recvLen]='\0';
-					string tempString(buff);
-    				string originalMessage = getOriginalMessage(tempString);
-    				string sendersIp = getSendersIp(tempString);
-					getIP("IP",0);
-					string ip(systemIp);
-					cse4589_print_and_log("[RECEIVED:SUCCESS]\n");
-					cse4589_print_and_log("msg from:%s\n[msg]:%s\n",sendersIp.c_str(),originalMessage.c_str());
-					cse4589_print_and_log("[RECEIVED:END]\n");
+					char buff[1000];
 					memset(buff,'\0',sizeof(buff));
+					int recvLen = recv(sockFd,buff,sizeof(buff),0);
+					if(recvLen >0)
+					{
+						try{
+							msgpack::object_handle oh = msgpack::unpack(buff,sizeof(buff));
+								msgpack::object obj = oh.get();
+							vector<loggedInDetails> rvec;
+	        				obj.convert(rvec);
+	        				clientList = rvec;
+						}
+						catch(...)
+						{
+							buff[recvLen]='\0';
+							string tempString(buff);
+		    	 			string originalMessage = getOriginalMessage(tempString);
+		    	 			string sendersIp = getSendersIp(tempString);
+							getIP("IP",0);
+							string ip(systemIp);
+							cse4589_print_and_log("[RECEIVED:SUCCESS]\n");
+							cse4589_print_and_log("msg from:%s\n[msg]:%s\n",sendersIp.c_str(),originalMessage.c_str());
+							cse4589_print_and_log("[RECEIVED:END]\n");
+							memset(buff,'\0',sizeof(buff));
+						}	
+					}
 				}
-			}
-		}	
+			}	
+		}
 	}
 }
 
-void startServer()
+void startServer(string serverPort)
 {
 	fd_set master;fd_set read_fds;fd_set write_fds;
 	int sockFd{}, fdMax{},newSocketFd, addressStatus;
+
 	FD_ZERO(&master);FD_ZERO(&read_fds);FD_ZERO(&write_fds);
+	FD_SET(0,&master);
+	fdMax = STDIN_FILENO;
 	char ipstr[INET_ADDRSTRLEN];
 	struct  addrinfo hints;
 	struct  addrinfo *addressInfo;
@@ -295,17 +336,19 @@ void startServer()
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
-	if(addressStatus = getaddrinfo(NULL,"3453",&hints,&addressInfo))
+	if(getaddrinfo(NULL,serverPort.c_str(),&hints,&addressInfo)==-1)
 		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(addressStatus));
 
 	if((sockFd = socket(addressInfo->ai_family, addressInfo->ai_socktype, addressInfo->ai_protocol))== -1)
 		perror("listener: socket");
 	
 	bind(sockFd, addressInfo->ai_addr, addressInfo->ai_addrlen);
-	//int recvSock{};
 	FD_SET(sockFd, &master);
-	fdMax = sockFd;
-	listen(sockFd, 5);
+	
+	if(sockFd>fdMax)
+		fdMax=sockFd;
+
+	listen(sockFd, 4);
 	
 	while(1)
 	{
@@ -324,21 +367,64 @@ void startServer()
 					FD_SET(newSocketFd, &master);
 		        		if(newSocketFd > fdMax)
         					fdMax = newSocketFd;
-        				//cout<<"client connection on : "<<newSocketFd<<endl;
-        				//send(newSocketFd,newSocketFd)
+
+        			clientList = getDetailsOfConnectedClients(fdMax,sockFd);
+        			msgpack::sbuffer sbuf;
+        			msgpack::packer<msgpack::sbuffer> pk(&sbuf);
+        			pk.pack(clientList);
+        			send(newSocketFd,sbuf.data(),sbuf.size(),0);
 				}	
 				else
 				{
-					char buff[1000];
-					memset(buff,'\0',sizeof(buff));
-					int lenOfData = recv(i,buff,sizeof(buff),0);
-					if(lenOfData==-1)
-						perror("recv");
+					if(i == STDIN_FILENO)
+					{
+							string cmd;
+							vector<string> tokens;
+							string intr;
+							getline(cin,cmd);
+							stringstream ss(cmd);
+							int i=0;
+							while(getline(ss,intr,' '))
+							{
+								if(i<1)
+								tokens.push_back(intr);
+								i++;
+							}
+							if(tokens[0]=="IP")
+							{
+								getIP("IP",1);
+							}
+							if(tokens[0]=="AUTHOR")
+								printAuthor();
+							if(tokens[0]=="PORT")
+								commonPrintFunctionForSuccess("PORT",serverPort.c_str());
+							if(tokens[0]=="LIST")
+							{
+								for(int i =0;i<clientList.size();i++)
+								{
+										if(i==0)
+											cse4589_print_and_log("[LIST:SUCCESS]\n");
+										cse4589_print_and_log("%-5d%-35s%-20s%-8d\n",i+1, clientList[i].name.c_str(), clientList[i].ip.c_str(),clientList[i].port);
+										if(i==clientList.size()-1)
+											cse4589_print_and_log("[LIST:END]\n");
+								}
+							}		
+						}
 					else
 					{
-						//buff[lenOfData] = '\0';
-						string stringMessage(buff);
-						receiveAndRelay(stringMessage,i,sockFd,fdMax,master);
+						char buff[1000];
+						memset(buff,'\0',sizeof(buff));
+						int lenOfData = recv(i,buff,sizeof(buff),0);
+						if(lenOfData<=0){
+							perror("recv");
+						}
+						else
+						{
+							buff[lenOfData]='\0';
+							string stringMessage(buff);
+							receiveAndRelay(stringMessage,i,sockFd,fdMax,master);
+							memset(buff,'\0',sizeof(buff));
+						}
 					}
 				}
 			}
@@ -409,6 +495,7 @@ void broadcastMessage(string message,string ipRecp,int listeningSocket,int conne
 			{
 				if(send(j,message.c_str(),message.length(),0)==-1)
 				{	
+					cout<<"j : "<<j<<endl;
 					commonPrintFunctionForError("BROADCAST");
 				}
 				else
@@ -434,7 +521,6 @@ void unicastMessage(string message,string recpIp,int maximumSocket)
 	string ip(systemIp);
 	string originalMessage = rtrim(ltrim(message));
 	string recpiIp = rtrim(ltrim(recpIp));		
-	
 	for(int j=0;j<=maximumSocket;j++)
 	{
 		struct sockaddr_in *connectedIp;
@@ -446,24 +532,50 @@ void unicastMessage(string message,string recpIp,int maximumSocket)
 			void *addr = &ipv4->sin_addr; 
 			inet_ntop(AF_INET,addr,ipBuf, sizeof(ipBuf));
 			string receviersip(ipBuf);
-			if(receviersip.compare(recpiIp)==0)
+			if(receviersip.compare(recpIp)==0)
 			{
-				if(send(j,originalMessage.c_str(),originalMessage.length(),0)==-1)
-					perror("SEND");
-				else
-				{
-    				string tempString = getOriginalMessage(originalMessage);
-    				string last_element = getSendersIp(originalMessage);
-    				cse4589_print_and_log("[RELAYED:SUCCESS]\n");
+				if(send(j,originalMessage.c_str(),originalMessage.length(),0) !=-1)
+				{	
+					string tempString = getOriginalMessage(originalMessage);
+		    		string last_element = getSendersIp(originalMessage);
+		    		cse4589_print_and_log("[RELAYED:SUCCESS]\n");
 					cse4589_print_and_log("msg from:%s, to:%s\n[msg]:%s\n",last_element.c_str(),receviersip.c_str(),tempString.c_str());
 					cse4589_print_and_log("[RELAYED:END]\n");
 					break;
 				}
 			}
 		}
-	 	//else
-	 		//perror("peernameissue");
-	 }
+	}
+}
+
+vector<loggedInDetails> getDetailsOfConnectedClients(int maximumSocket,int serverSocket)
+{
+	vector<loggedInDetails> loggedinvector;
+	for(int j=0;j<=maximumSocket;j++)
+	{
+		struct sockaddr_in *connectedIp;
+		socklen_t len = sizeof(connectedIp);				
+	 	if((getpeername(j,(struct sockaddr *)&connectedIp,&len)!=-1) && j!=serverSocket)
+	 	{
+			char ipBuf[INET_ADDRSTRLEN];
+			struct sockaddr_in *ipv4 = (struct sockaddr_in *)&connectedIp;
+			void *addr = &ipv4->sin_addr; 
+			int port = ntohs(ipv4->sin_port);
+			inet_ntop(AF_INET,addr,ipBuf, sizeof(ipBuf));
+			string receviersip(ipBuf);
+			struct hostent *he;
+			struct in_addr ipv4addr;
+			inet_pton(AF_INET,receviersip.c_str(), &ipv4addr);
+			he = gethostbyaddr(&ipv4addr, sizeof ipv4addr, AF_INET);
+			loggedInDetails l;
+			l.name=he->h_name;
+			l.ip=receviersip;
+			l.port=port;
+			loggedinvector.push_back(l);
+		}
+	}
+	sort(loggedinvector.begin(),loggedinvector.end(),comparePorts);
+	return loggedinvector;
 }
 
 string ltrim(string s)
