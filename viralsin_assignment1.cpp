@@ -72,7 +72,9 @@ bool comparePorts(loggedInDetails first,loggedInDetails second)
 {
     return first.port < second.port;
 }
-vector<loggedInDetails> getDetailsOfConnectedClients(int,int);
+vector<loggedInDetails> getDetailsOfConnectedClients(int,int,fd_set);
+
+fd_set globalMasterSet;
 
 int getSocketFdFromIp(int,string);
 string ltrim(const string);
@@ -268,6 +270,10 @@ void loginToServer(string ip,string port,string lport)
 					getIP("IP",1);
 				if(tokens[0]=="LOGOUT" && clientLoggedIn==1){
 					clientLoggedIn=0;
+					string removeSocketString = "REMOVE";
+					send(sockFd,removeSocketString.c_str(),removeSocketString.length(),0);
+					cse4589_print_and_log("[LOGOUT:SUCCESS]\n");
+					cse4589_print_and_log("[LOGOUT:END]\n");
 					break;
 				}
 				if(tokens[0]=="EXIT"){
@@ -282,6 +288,22 @@ void loginToServer(string ip,string port,string lport)
 						cse4589_print_and_log("%-5d%-35s%-20s%-8d\n",i+1, clientList[i].name.c_str(), clientList[i].ip.c_str(),clientList[i].port);
 						if(i==clientList.size()-1)
 							cse4589_print_and_log("[LIST:END]\n");
+					}
+				}
+				if(tokens[0]=="REFRESH" && clientLoggedIn == 1)
+				{
+					string inputMsg = "REFRESH";
+
+					int retValue = send(sockFd,inputMsg.c_str(),inputMsg.length(),0);
+					if(retValue == -1)
+					{
+						cse4589_print_and_log("[REFRESH:ERROR]\n");
+						cse4589_print_and_log("[REFRESH:END]\n");
+					}
+					else
+					{
+						cse4589_print_and_log("[REFRESH:SUCCESS]\n");
+						cse4589_print_and_log("[REFRESH:END]\n");
 					}
 				}
 			}
@@ -325,7 +347,7 @@ void startServer(string serverPort)
 {
 	fd_set master;fd_set read_fds;fd_set write_fds;
 	int sockFd{}, fdMax{},newSocketFd, addressStatus;
-
+	FD_ZERO(&globalMasterSet);
 	FD_ZERO(&master);FD_ZERO(&read_fds);FD_ZERO(&write_fds);
 	FD_SET(0,&master);
 	fdMax = STDIN_FILENO;
@@ -352,6 +374,7 @@ void startServer(string serverPort)
 	
 	while(1)
 	{
+		
 		read_fds = master;	
 		select(fdMax+1,&read_fds,NULL,NULL,NULL);
 		for(int i=0;i<=fdMax;i++)
@@ -367,8 +390,9 @@ void startServer(string serverPort)
 					FD_SET(newSocketFd, &master);
 		        		if(newSocketFd > fdMax)
         					fdMax = newSocketFd;
+        			globalMasterSet = master;		
 
-        			clientList = getDetailsOfConnectedClients(fdMax,sockFd);
+        			clientList = getDetailsOfConnectedClients(fdMax,sockFd,globalMasterSet);
         			msgpack::sbuffer sbuf;
         			msgpack::packer<msgpack::sbuffer> pk(&sbuf);
         			pk.pack(clientList);
@@ -422,8 +446,26 @@ void startServer(string serverPort)
 						{
 							buff[lenOfData]='\0';
 							string stringMessage(buff);
-							receiveAndRelay(stringMessage,i,sockFd,fdMax,master);
-							memset(buff,'\0',sizeof(buff));
+							if(stringMessage=="REFRESH")
+							{
+								clientList=getDetailsOfConnectedClients(fdMax,sockFd,globalMasterSet);
+								msgpack::sbuffer sbuf;
+        						msgpack::packer<msgpack::sbuffer> pk(&sbuf);
+        						pk.pack(clientList);
+        						send(i,sbuf.data(),sbuf.size(),0);
+							}
+							else
+							{
+								if(stringMessage=="REMOVE")
+								{
+									FD_CLR(i,&globalMasterSet);
+								}
+								else
+								{
+									receiveAndRelay(stringMessage,i,sockFd,fdMax,master);
+									memset(buff,'\0',sizeof(buff));
+								}
+							}
 						}
 					}
 				}
@@ -443,7 +485,6 @@ int sendMessage(string message, int socket)
 	{
 		return 0;
 	}
-
 }					
 
 void receiveAndRelay(string message,int listeningSocket,int connectionSocket,int maximumSocket,fd_set masterlist)
@@ -548,30 +589,33 @@ void unicastMessage(string message,string recpIp,int maximumSocket)
 	}
 }
 
-vector<loggedInDetails> getDetailsOfConnectedClients(int maximumSocket,int serverSocket)
+vector<loggedInDetails> getDetailsOfConnectedClients(int maximumSocket,int serverSocket,fd_set globalmaster)
 {
 	vector<loggedInDetails> loggedinvector;
 	for(int j=0;j<=maximumSocket;j++)
 	{
-		struct sockaddr_in *connectedIp;
-		socklen_t len = sizeof(connectedIp);				
-	 	if((getpeername(j,(struct sockaddr *)&connectedIp,&len)!=-1) && j!=serverSocket)
-	 	{
-			char ipBuf[INET_ADDRSTRLEN];
-			struct sockaddr_in *ipv4 = (struct sockaddr_in *)&connectedIp;
-			void *addr = &ipv4->sin_addr; 
-			int port = ntohs(ipv4->sin_port);
-			inet_ntop(AF_INET,addr,ipBuf, sizeof(ipBuf));
-			string receviersip(ipBuf);
-			struct hostent *he;
-			struct in_addr ipv4addr;
-			inet_pton(AF_INET,receviersip.c_str(), &ipv4addr);
-			he = gethostbyaddr(&ipv4addr, sizeof ipv4addr, AF_INET);
-			loggedInDetails l;
-			l.name=he->h_name;
-			l.ip=receviersip;
-			l.port=port;
-			loggedinvector.push_back(l);
+		if(FD_ISSET(j,&globalmaster))
+		{
+			struct sockaddr_in *connectedIp;
+			socklen_t len = sizeof(connectedIp);				
+		 	if((getpeername(j,(struct sockaddr *)&connectedIp,&len)!=-1) && j!=serverSocket)
+		 	{
+				char ipBuf[INET_ADDRSTRLEN];
+				struct sockaddr_in *ipv4 = (struct sockaddr_in *)&connectedIp;
+				void *addr = &ipv4->sin_addr; 
+				int port = ntohs(ipv4->sin_port);
+				inet_ntop(AF_INET,addr,ipBuf, sizeof(ipBuf));
+				string receviersip(ipBuf);
+				struct hostent *he;
+				struct in_addr ipv4addr;
+				inet_pton(AF_INET,receviersip.c_str(), &ipv4addr);
+				he = gethostbyaddr(&ipv4addr, sizeof ipv4addr, AF_INET);
+				loggedInDetails l;
+				l.name=he->h_name;
+				l.ip=receviersip;
+				l.port=port;
+				loggedinvector.push_back(l);
+			}
 		}
 	}
 	sort(loggedinvector.begin(),loggedinvector.end(),comparePorts);
