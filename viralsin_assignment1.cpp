@@ -58,15 +58,20 @@ void startServer(string);
 void receiveAndRelay(string,int,int,int,fd_set);
 void unicastMessage(string,string,int);
 void broadcastMessage(string,string,int,int,int,fd_set);
+void displayListOfBlockedClients(string,int);
 
 string getOriginalMessage(string);
 string getSendersIp(string);
 string getIpfromSocket(int);
+string ltrim(const string);
+string rtrim(const string);
 
 int isValidPort(string);
 int isValidIp(string);
 int sendMessage(string,int);
 int checkBlockList(string,string);
+int getSocketFdFromIp(int,string);
+int getPortFromIpForBlockedList(string,int);
 
 struct loggedInDetails{
 		string name;
@@ -75,23 +80,32 @@ struct loggedInDetails{
 		MSGPACK_DEFINE(name,ip,port);
 };
 
+vector<loggedInDetails> getDetailsOfConnectedClients(int,int,fd_set);
+
+struct blockedListstruct{
+		string name;
+		string ip;
+		int port;
+};
+
 bool comparePorts(loggedInDetails first,loggedInDetails second)
 {
     return first.port < second.port;
 }
-vector<loggedInDetails> getDetailsOfConnectedClients(int,int,fd_set);
+
+bool comparePortsForBlockedListDisplay(blockedListstruct first,blockedListstruct second)
+{
+    return first.port < second.port;
+}
+
+vector<loggedInDetails> clientList;
+vector< pair<string,string> > blockList;
+vector<blockedListstruct> blockListByClient;
 
 fd_set globalMasterSet;
-
-int getSocketFdFromIp(int,string);
-string ltrim(const string);
-string rtrim(const string);
 char systemIp[INET_ADDRSTRLEN];
 int clientLoggedIn = 0;
-vector<loggedInDetails> clientList;
 
-//recvrsip,sendersip
-vector< pair<string,string> > blockList;
 
 int main(int argc, char **argv)
 {
@@ -458,6 +472,14 @@ void startServer(string serverPort)
 										if(i==clientList.size()-1)
 											cse4589_print_and_log("[LIST:END]\n");
 								}
+							}
+							if(tokens[0]=="BLOCKED")
+							{
+								string targetIp,tmp;
+								stringstream ssMessage(cmd);
+								ssMessage>>tmp;
+								getline(ssMessage,targetIp);
+								displayListOfBlockedClients(rtrim(ltrim(targetIp)),fdMax);	
 							}		
 						}
 					else
@@ -637,6 +659,61 @@ void unicastMessage(string message,string recpIp,int maximumSocket)
 			}
 		}
 	}
+}
+
+void displayListOfBlockedClients(string targetIp,int maximumSocket)
+{
+	for(int i=0;i<blockList.size();i++)
+	{
+		if(blockList[i].first == targetIp)
+		{
+			blockedListstruct b;
+			struct in_addr ipv4addr;
+			inet_pton(AF_INET,blockList[i].second.c_str(), &ipv4addr);
+			struct hostent *he;
+			he = gethostbyaddr(&ipv4addr, sizeof ipv4addr, AF_INET);
+			b.name = he->h_name;
+			b.ip = blockList[i].second;
+			b.port = getPortFromIpForBlockedList(blockList[i].second,maximumSocket);
+			blockListByClient.push_back(b);
+		}
+	}
+	sort(blockListByClient.begin(),blockListByClient.end(),comparePortsForBlockedListDisplay);
+
+	for(int i =0;i<blockListByClient.size();i++)
+	{
+		if(i==0)
+			cse4589_print_and_log("[BLOCKED:SUCCESS]\n");
+		cse4589_print_and_log("%-5d%-35s%-20s%-8d\n",i+1, blockListByClient[i].name.c_str(), blockListByClient[i].ip.c_str(),blockListByClient[i].port);
+		if(i==blockListByClient.size()-1)
+			cse4589_print_and_log("[BLOCKED:END]\n");
+	}
+}
+
+int getPortFromIpForBlockedList(string ipForPort,int maximumSocket)
+{
+	int port{};
+	for(int j=0;j<=maximumSocket;j++)
+	{
+		if(FD_ISSET(j,&globalMasterSet))
+		{
+			struct sockaddr_in *connectedIp;
+			socklen_t len = sizeof(connectedIp);				
+		 	if((getpeername(j,(struct sockaddr *)&connectedIp,&len)!=-1))
+		 	{
+				char ipBuf[INET_ADDRSTRLEN];
+				struct sockaddr_in *ipv4 = (struct sockaddr_in *)&connectedIp;
+				void *addr = &ipv4->sin_addr; 
+				inet_ntop(AF_INET,addr,ipBuf, sizeof(ipBuf));
+				string receviersip(ipBuf);
+				if(ipBuf==ipForPort)
+				{
+					port = ntohs(ipv4->sin_port);
+				}
+			}
+		}
+	}
+	return port;
 }
 
 vector<loggedInDetails> getDetailsOfConnectedClients(int maximumSocket,int serverSocket,fd_set globalmaster)
