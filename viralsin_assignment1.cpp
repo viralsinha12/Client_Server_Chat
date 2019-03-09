@@ -55,12 +55,18 @@ void commonPrintFunctionForError(char *, const char *);
 void getPortforServer(char *,char *);
 void loginToServer(string,string,string);
 void startServer(string);
-int sendMessage(string,int);
 void receiveAndRelay(string,int,int,int,fd_set);
 void unicastMessage(string,string,int);
 void broadcastMessage(string,string,int,int,int,fd_set);
+
 string getOriginalMessage(string);
 string getSendersIp(string);
+string getIpfromSocket(int);
+
+int isValidPort(string);
+int isValidIp(string);
+int sendMessage(string,int);
+int checkBlockList(string,string);
 
 struct loggedInDetails{
 		string name;
@@ -68,6 +74,7 @@ struct loggedInDetails{
 		int port;
 		MSGPACK_DEFINE(name,ip,port);
 };
+
 bool comparePorts(loggedInDetails first,loggedInDetails second)
 {
     return first.port < second.port;
@@ -82,6 +89,9 @@ string rtrim(const string);
 char systemIp[INET_ADDRSTRLEN];
 int clientLoggedIn = 0;
 vector<loggedInDetails> clientList;
+
+//recvrsip,sendersip
+vector< pair<string,string> > blockList;
 
 int main(int argc, char **argv)
 {
@@ -125,7 +135,7 @@ int main(int argc, char **argv)
 			if(commandTokens[0] == "LOGIN")
 			{
 				loginToServer(commandTokens[1],commandTokens[2],argv[2]);
-			}
+			}	
 		}
 	}
 	return 0;
@@ -194,7 +204,10 @@ void loginToServer(string ip,string port,string lport)
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
 	if(getaddrinfo(ip.c_str(),port.c_str(),&hints,&addressInfo)==-1)
-		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(addressStatus));
+	{
+		cse4589_print_and_log("[LOGIN:ERROR]\n");
+		cse4589_print_and_log("[LOGIN:END]\n");
+	}
 
 	if((sockFd = socket(addressInfo->ai_family, addressInfo->ai_socktype, addressInfo->ai_protocol))== -1)
 		perror("listener: socket");
@@ -306,6 +319,20 @@ void loginToServer(string ip,string port,string lport)
 						cse4589_print_and_log("[REFRESH:END]\n");
 					}
 				}
+				if(tokens[0]=="BLOCK" && clientLoggedIn == 1)
+				{
+					int retValue = send(sockFd,input.c_str(),input.length(),0);
+					if(retValue == -1)
+					{
+						cse4589_print_and_log("[BLOCK:ERROR]\n");
+						cse4589_print_and_log("[BLOCK:END]\n");
+					}
+					else
+					{
+						cse4589_print_and_log("[BLOCK:SUCCESS]\n");
+						cse4589_print_and_log("[BLOCK:END]\n");
+					}
+				}
 			}
 			else
 			{
@@ -374,7 +401,6 @@ void startServer(string serverPort)
 	
 	while(1)
 	{
-		
 		read_fds = master;	
 		select(fdMax+1,&read_fds,NULL,NULL,NULL);
 		for(int i=0;i<=fdMax;i++)
@@ -462,8 +488,21 @@ void startServer(string serverPort)
 								}
 								else
 								{
-									receiveAndRelay(stringMessage,i,sockFd,fdMax,master);
-									memset(buff,'\0',sizeof(buff));
+									std::string input = stringMessage;
+									std::string firstWord = input.substr(0, input.find(" "));
+									if(firstWord == "BLOCK")
+									{									
+										string iptoblock,tmp;
+										stringstream ssMessage(stringMessage);
+										ssMessage>>tmp;
+										getline(ssMessage,iptoblock);
+										blockList.push_back(make_pair(getIpfromSocket(i),rtrim(ltrim(iptoblock))));
+									}
+									else
+									{
+										receiveAndRelay(stringMessage,i,sockFd,fdMax,master);
+										memset(buff,'\0',sizeof(buff));
+									}
 								}
 							}
 						}
@@ -532,23 +571,26 @@ void broadcastMessage(string message,string ipRecp,int listeningSocket,int conne
 	{
 		if(FD_ISSET(j,&master))
 		{
+
 			if(j!=listeningSocket && j!=connectionSocket)
 			{
-				if(send(j,message.c_str(),message.length(),0)==-1)
-				{	
-					cout<<"j : "<<j<<endl;
-					commonPrintFunctionForError("BROADCAST");
-				}
-				else
+				string sendersIp = getSendersIp(message);
+				if((checkBlockList(getIpfromSocket(j),sendersIp))==0)
 				{
-					if(i==0)
+					if(send(j,message.c_str(),message.length(),0)==-1)
+					{	
+						commonPrintFunctionForError("BROADCAST");
+					}
+					else
 					{
-						string tempString = getOriginalMessage(message);
-	    				string sendersIp = getSendersIp(message);
-						cse4589_print_and_log("[RELAYED:SUCCESS]\n");
-						cse4589_print_and_log("msg from:%s, to:255.255.255.255 \n[msg]:%s\n",sendersIp.c_str(),tempString.c_str());
-						cse4589_print_and_log("[RELAYED:END]\n");
-						i++;
+						if(i==0)
+						{
+							string tempString = getOriginalMessage(message);
+							cse4589_print_and_log("[RELAYED:SUCCESS]\n");
+							cse4589_print_and_log("msg from:%s, to:255.255.255.255 \n[msg]:%s\n",sendersIp.c_str(),tempString.c_str());
+							cse4589_print_and_log("[RELAYED:END]\n");
+							i++;
+						}
 					}
 				}
 			}	
@@ -575,13 +617,21 @@ void unicastMessage(string message,string recpIp,int maximumSocket)
 			string receviersip(ipBuf);
 			if(receviersip.compare(recpIp)==0)
 			{
-				if(send(j,originalMessage.c_str(),originalMessage.length(),0) !=-1)
-				{	
-					string tempString = getOriginalMessage(originalMessage);
-		    		string last_element = getSendersIp(originalMessage);
-		    		cse4589_print_and_log("[RELAYED:SUCCESS]\n");
-					cse4589_print_and_log("msg from:%s, to:%s\n[msg]:%s\n",last_element.c_str(),receviersip.c_str(),tempString.c_str());
-					cse4589_print_and_log("[RELAYED:END]\n");
+				string last_element = getSendersIp(originalMessage);
+				int isRecvIpBlocked = checkBlockList(receviersip,last_element);
+				if(isRecvIpBlocked == 0)
+				{
+					if(send(j,originalMessage.c_str(),originalMessage.length(),0) !=-1)
+					{	
+						string tempString = getOriginalMessage(originalMessage);
+			    		cse4589_print_and_log("[RELAYED:SUCCESS]\n");
+						cse4589_print_and_log("msg from:%s, to:%s\n[msg]:%s\n",last_element.c_str(),receviersip.c_str(),tempString.c_str());
+						cse4589_print_and_log("[RELAYED:END]\n");
+						break;
+					}
+				}
+				else
+				{
 					break;
 				}
 			}
@@ -650,4 +700,27 @@ string getSendersIp(string message)
 	string tempString(message);
 	string last_element(tempString.substr(tempString.rfind("^") + 1));
 	return last_element;
+}
+
+string getIpfromSocket(int socket)
+{
+	struct sockaddr_in *connectedIp;
+	socklen_t len = sizeof(connectedIp);				
+	getpeername(socket,(struct sockaddr *)&connectedIp,&len);
+	char ipBuf[INET_ADDRSTRLEN];
+	struct sockaddr_in *ipv4 = (struct sockaddr_in *)&connectedIp;
+	void *addr = &ipv4->sin_addr; 
+	int port = ntohs(ipv4->sin_port);
+	inet_ntop(AF_INET,addr,ipBuf, sizeof(ipBuf));
+	string receviersip(ipBuf);
+	return receviersip;
+}
+
+int checkBlockList(string recvrsIp,string sendersIp)
+{
+	int returnValue = 0;
+	pair<string,string> p = std::make_pair(recvrsIp, sendersIp);
+	if(std::find(blockList.begin(), blockList.end(), p) != blockList.end())
+		returnValue = 1;
+	return returnValue;
 }
