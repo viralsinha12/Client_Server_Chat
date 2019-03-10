@@ -620,7 +620,7 @@ void broadcastMessage(string message,string ipRecp,int listeningSocket,int conne
 		if(FD_ISSET(j,&master))
 		{
 
-			if(j!=listeningSocket && j!=connectionSocket)
+			if(j!=listeningSocket && j!=connectionSocket &&j!=0)
 			{
 				string sendersIp = getSendersIp(message);
 				if((checkBlockList(getIpfromSocket(j),sendersIp))==0)
@@ -635,7 +635,7 @@ void broadcastMessage(string message,string ipRecp,int listeningSocket,int conne
 						{
 							string tempString = getOriginalMessage(message);
 							cse4589_print_and_log("[RELAYED:SUCCESS]\n");
-							cse4589_print_and_log("msg from:%s, to:255.255.255.255 \n[msg]:%s\n",sendersIp.c_str(),tempString.c_str());
+							cse4589_print_and_log("msg from:%s, to:255.255.255.255\n[msg]:%s\n",sendersIp.c_str(),tempString.c_str());
 							cse4589_print_and_log("[RELAYED:END]\n");
 							i++;
 						}
