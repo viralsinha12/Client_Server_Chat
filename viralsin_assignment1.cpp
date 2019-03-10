@@ -72,6 +72,7 @@ int sendMessage(string,int);
 int checkBlockList(string,string);
 int getSocketFdFromIp(int,string);
 int getPortFromIpForBlockedList(string,int);
+int unblockIp(string,string);
 
 struct loggedInDetails{
 		string name;
@@ -347,6 +348,20 @@ void loginToServer(string ip,string port,string lport)
 						cse4589_print_and_log("[BLOCK:END]\n");
 					}
 				}
+				if(tokens[0]=="UNBLOCK" && clientLoggedIn == 1)
+				{
+					int retValue = send(sockFd,input.c_str(),input.length(),0);
+					if(retValue == -1)
+					{
+						cse4589_print_and_log("[UNBLOCK:ERROR]\n");
+						cse4589_print_and_log("[UNBLOCK:END]\n");
+					}
+					else
+					{
+						cse4589_print_and_log("[UNBLOCK:SUCCESS]\n");
+						cse4589_print_and_log("[UNBLOCK:END]\n");
+					}
+				}
 			}
 			else
 			{
@@ -513,7 +528,7 @@ void startServer(string serverPort)
 									std::string input = stringMessage;
 									std::string firstWord = input.substr(0, input.find(" "));
 									if(firstWord == "BLOCK")
-									{									
+									{	
 										string iptoblock,tmp;
 										stringstream ssMessage(stringMessage);
 										ssMessage>>tmp;
@@ -522,8 +537,19 @@ void startServer(string serverPort)
 									}
 									else
 									{
-										receiveAndRelay(stringMessage,i,sockFd,fdMax,master);
-										memset(buff,'\0',sizeof(buff));
+										if(firstWord == "UNBLOCK")
+										{
+											string iptounblock,tmp;
+											stringstream ssMessage(stringMessage);
+											ssMessage>>tmp;
+											getline(ssMessage,iptounblock);
+											int unblockSuccess = unblockIp(getIpfromSocket(i),rtrim(ltrim(iptounblock)));
+										}
+										else
+										{
+											receiveAndRelay(stringMessage,i,sockFd,fdMax,master);
+											memset(buff,'\0',sizeof(buff));
+										}
 									}
 								}
 							}
@@ -663,6 +689,7 @@ void unicastMessage(string message,string recpIp,int maximumSocket)
 
 void displayListOfBlockedClients(string targetIp,int maximumSocket)
 {
+	blockListByClient.clear();
 	for(int i=0;i<blockList.size();i++)
 	{
 		if(blockList[i].first == targetIp)
@@ -799,5 +826,20 @@ int checkBlockList(string recvrsIp,string sendersIp)
 	pair<string,string> p = std::make_pair(recvrsIp, sendersIp);
 	if(std::find(blockList.begin(), blockList.end(), p) != blockList.end())
 		returnValue = 1;
+	return returnValue;
+}
+
+int unblockIp(string requestFromIp,string requestedIp)
+{
+	int returnValue = 0;
+	for(int i = 0;i<blockList.size();i++)
+	{
+		if(blockList[i].first == requestFromIp && blockList[i].second == requestedIp)
+		{
+			blockList.erase(blockList.begin()+i);
+			returnValue = 1;
+			break;
+		}
+	}
 	return returnValue;
 }
