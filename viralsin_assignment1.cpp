@@ -51,7 +51,7 @@ using namespace std;
 void printAuthor();
 void getIP(char *,int);
 void commonPrintFunctionForSuccess(char *, const char *);
-void commonPrintFunctionForError(char *, const char *);
+void commonPrintFunctionForError(char *);
 void getPortforServer(char *,char *);
 void loginToServer(string,string,string);
 void startServer(string);
@@ -177,25 +177,35 @@ int main(int argc, char **argv)
 
 void getIP(char *cmd,int print)
 {
-	int sockFd, addressStatus;
+	int sockFd;
 	struct  addrinfo hints;
 	struct  addrinfo *addressInfo;
 	memset(&hints,0,sizeof(hints));
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_DGRAM;
 	hints.ai_flags = AI_PASSIVE;
-	if(addressStatus = getaddrinfo("8.8.8.8","3453",&hints,&addressInfo))
-		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(addressStatus));
+	if(getaddrinfo("8.8.8.8","3453",&hints,&addressInfo) == -1)
+	{
+		commonPrintFunctionForError("IP");
+	}
+				
 
 	if((sockFd = socket(addressInfo->ai_family, addressInfo->ai_socktype, addressInfo->ai_protocol))== -1)
-		perror("listener: socket");
-	connect(sockFd,addressInfo->ai_addr,addressInfo->ai_addrlen);
-	struct sockaddr_in name;
-	memset(&name,0,sizeof(name));
-	socklen_t namelen = sizeof(name);
-	getsockname(sockFd,(struct sockaddr *)&name,&namelen);
+	{
+		commonPrintFunctionForError("IP");
+	}
+
+	if(connect(sockFd,addressInfo->ai_addr,addressInfo->ai_addrlen)==-1)
+	{
+		commonPrintFunctionForError("IP");
+	}
+
+	struct sockaddr_in sa;
+	memset(&sa,0,sizeof(sa));
+	socklen_t len = sizeof(sa);
+	getsockname(sockFd,(struct sockaddr *)&sa,&len);
 	memset(systemIp,'\0',sizeof(systemIp));
-	inet_ntop(addressInfo->ai_family, &name.sin_addr, systemIp, sizeof(systemIp));
+	inet_ntop(addressInfo->ai_family, &sa.sin_addr, systemIp, sizeof(systemIp));
 	if(print==1)
 		commonPrintFunctionForSuccess("IP",systemIp);
 }
@@ -325,6 +335,10 @@ void loginToServer(string ip,string port,string lport)
 					printAuthor();
 				if(tokens[0]=="IP")
 					getIP("IP",1);
+				if(tokens[0] == "PORT")
+				{
+					commonPrintFunctionForSuccess("PORT",lport.c_str());
+				}
 				if(tokens[0]=="LOGOUT" && clientLoggedIn==1){
 					clientLoggedIn=0;
 					string removeSocketString = "REMOVE";
