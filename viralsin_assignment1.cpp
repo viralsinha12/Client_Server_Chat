@@ -75,11 +75,12 @@ int checkBlockList(string,string);
 int getSocketFdFromIp(int,string);
 int getPortFromIpForBlockedList(string,int);
 int unblockIp(string,string);
-int validateIpAndPort(string);
+int validateIpAndPort(string,string);
 int checkLocalList(string);
-int validateIP(string);
+int validateIP(string,string);
 int validateIForSending(string);
 int checkBlockedListInServer(string);
+int checkForValidPort(string);
 
 struct loggedInDetails{
 		string name;
@@ -156,9 +157,13 @@ int main(int argc, char **argv)
 
 			if(commandTokens[0] == "LOGIN")
 			{
-				int isValid = validateIpAndPort(commandTokens[1]);
+				int isValid = validateIpAndPort(commandTokens[1],commandTokens[2]);
 				if(isValid == 1)
+				{
+					cse4589_print_and_log("[LOGIN:SUCCESS]\n");
+					cse4589_print_and_log("[LOGIN:END]\n");
 					loginToServer(commandTokens[1],commandTokens[2],argv[2]);
+				}
 				else
 				{
 					cse4589_print_and_log("[LOGIN:ERROR]\n");
@@ -253,14 +258,14 @@ void loginToServer(string ip,string port,string lport)
 	if(connect(sockFd,addressInfo->ai_addr,addressInfo->ai_addrlen)==-1)
 	{
 		clientLoggedIn=0;
-		cse4589_print_and_log("[LOGIN:ERROR]\n");
-		cse4589_print_and_log("[LOGIN:END]\n");
+		//cse4589_print_and_log("[LOGIN:ERROR]\n");
+		//cse4589_print_and_log("[LOGIN:END]\n");
 	}
 	else
 	{
 		clientLoggedIn=1;
-		cse4589_print_and_log("[LOGIN:SUCCESS]\n");
-		cse4589_print_and_log("[LOGIN:END]\n");
+		//cse4589_print_and_log("[LOGIN:SUCCESS]\n");
+		//cse4589_print_and_log("[LOGIN:END]\n");
 		while(1)
 		{
 			write_fds = master;
@@ -361,7 +366,7 @@ void loginToServer(string ip,string port,string lport)
 				}
 				if(tokens[0]=="BLOCK" && clientLoggedIn == 1)
 				{
-					if(validateIP(input)==1)
+					if(validateIP(input,"")==1)
 					{
 						send(sockFd,input.c_str(),input.length(),0);
 					}
@@ -373,7 +378,7 @@ void loginToServer(string ip,string port,string lport)
 				}
 				if(tokens[0]=="UNBLOCK" && clientLoggedIn == 1)
 				{
-					if(validateIP(input)==1)
+					if(validateIP(input,"")==1)
 					{
 						send(sockFd,input.c_str(),input.length(),0);
 					}
@@ -934,12 +939,12 @@ string skipTwoWords(string inputString)
 	return returnString;
 }
 
-int validateIP(string inputString)
+int validateIP(string inputString,string port)
 {
 	int isValidReceiver = 1;
 	string receiversIp = skipFirstWord(inputString);
 	receiversIp = rtrim(ltrim(receiversIp));
-	int validIporNot = validateIpAndPort(receiversIp);
+	int validIporNot = validateIpAndPort(receiversIp,port);
 	if(validIporNot == 0){
 		isValidReceiver=0;
 	}
@@ -951,7 +956,7 @@ int validateIP(string inputString)
 	return isValidReceiver;
 }
 
-int validateIpAndPort(string ip)
+int validateIpAndPort(string ip,string port)
 {
 	int isIpValid = 1;
     struct sockaddr_in sa;
@@ -961,7 +966,30 @@ int validateIpAndPort(string ip)
     if (result!=1){
     	isIpValid = 0;
     }
+    if(!port.empty())
+    {
+    	if(checkForValidPort(port)==0)
+    		isIpValid = 0;
+	}
     return isIpValid;
+}
+
+int checkForValidPort(string port)
+{
+	int isValidPort = 1;
+	for(int i=0;port.length();i++)
+	{
+		if(port[i]=='0' || port[i]=='1' || port[i]=='2'|| port[i]=='3'|| port[i]=='4'|| port[i]=='5'|| port[i]=='6'|| port[i]=='7' || port[i]=='8' || port[i]=='9')
+		{
+			isValidPort=1;
+		}
+		else
+		{
+			isValidPort=0;
+			break;
+		}
+	}
+	return isValidPort;
 }
 
 int checkLocalList(string inputIp)
@@ -995,7 +1023,7 @@ int validateIForSending(string inputString)
 		i++;
 	}
 	receiversIp = rtrim(ltrim(receiversIp));
-	int validIporNot = validateIpAndPort(receiversIp);
+	int validIporNot = validateIpAndPort(receiversIp,"");
 	if(validIporNot == 0){
 		isValidReceiver=0;
 	}
@@ -1012,7 +1040,7 @@ int checkBlockedListInServer(string inputString)
 	int isValidIp = 1;
 	string queryIp = skipFirstWord(inputString);
 	queryIp = rtrim(ltrim(queryIp));
-	int validIporNot = validateIpAndPort(queryIp);
+	int validIporNot = validateIpAndPort(queryIp,"");
 	if(validIporNot == 0){
 		isValidIp=0;
 		return isValidIp;
