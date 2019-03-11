@@ -65,6 +65,8 @@ string getSendersIp(string);
 string getIpfromSocket(int);
 string ltrim(const string);
 string rtrim(const string);
+string skipFirstWord(string);
+string skipTwoWords(string);
 
 int isValidPort(string);
 int isValidIp(string);
@@ -73,6 +75,10 @@ int checkBlockList(string,string);
 int getSocketFdFromIp(int,string);
 int getPortFromIpForBlockedList(string,int);
 int unblockIp(string,string);
+int validateIpAndPort(string);
+int checkLocalList(string);
+int validateIP(string);
+int validateIForSending(string);
 
 struct loggedInDetails{
 		string name;
@@ -149,7 +155,14 @@ int main(int argc, char **argv)
 
 			if(commandTokens[0] == "LOGIN")
 			{
-				loginToServer(commandTokens[1],commandTokens[2],argv[2]);
+				int isValid = validateIpAndPort(commandTokens[1]);
+				if(isValid == 1)
+					loginToServer(commandTokens[1],commandTokens[2],argv[2]);
+				else
+				{
+					cse4589_print_and_log("[LOGIN:ERROR]\n");
+					cse4589_print_and_log("[LOGIN:END]\n");
+				}	
 			}	
 		}
 	}
@@ -172,6 +185,7 @@ void getIP(char *cmd,int print)
 		perror("listener: socket");
 	connect(sockFd,addressInfo->ai_addr,addressInfo->ai_addrlen);
 	struct sockaddr_in name;
+	memset(&name,0,sizeof(name));
 	socklen_t namelen = sizeof(name);
 	getsockname(sockFd,(struct sockaddr *)&name,&namelen);
 	memset(systemIp,'\0',sizeof(systemIp));
@@ -266,16 +280,25 @@ void loginToServer(string ip,string port,string lport)
 				
 				if(tokens[0]=="SEND" && clientLoggedIn == 1)
 				{
-					int retValue = sendMessage(input,sockFd);
-					if(retValue == -1)
+					int isValidSend = validateIForSending(input);
+					if(isValidSend == 1)
 					{
-						cse4589_print_and_log("[SEND:ERROR]\n");
-						cse4589_print_and_log("[SEND:END]\n");
+						int retValue = sendMessage(input,sockFd);
+						if(retValue == -1)
+						{
+							cse4589_print_and_log("[SEND:ERROR]\n");
+							cse4589_print_and_log("[SEND:END]\n");
+						}
+						else
+						{
+							cse4589_print_and_log("[SEND:SUCCESS]\n");
+							cse4589_print_and_log("[SEND:END]\n");
+						}
 					}
 					else
 					{
-						cse4589_print_and_log("[SEND:SUCCESS]\n");
-						cse4589_print_and_log("[SEND:END]\n");
+							cse4589_print_and_log("[SEND:ERROR]\n");
+							cse4589_print_and_log("[SEND:END]\n");
 					}
 				}
 				if(tokens[0]=="BROADCAST" && clientLoggedIn==1)
@@ -308,7 +331,8 @@ void loginToServer(string ip,string port,string lport)
 					clientLoggedIn=0;
 					exit(0);
 				}
-				if(tokens[0]=="LIST"){
+				if(tokens[0]=="LIST")
+				{
 					for(int i =0;i<clientList.size();i++)
 					{
 						if(i==0)
@@ -336,30 +360,26 @@ void loginToServer(string ip,string port,string lport)
 				}
 				if(tokens[0]=="BLOCK" && clientLoggedIn == 1)
 				{
-					int retValue = send(sockFd,input.c_str(),input.length(),0);
-					if(retValue == -1)
+					if(validateIP(input)==1)
 					{
-						cse4589_print_and_log("[BLOCK:ERROR]\n");
-						cse4589_print_and_log("[BLOCK:END]\n");
+						send(sockFd,input.c_str(),input.length(),0);
 					}
 					else
 					{
-						cse4589_print_and_log("[BLOCK:SUCCESS]\n");
+						cse4589_print_and_log("[BLOCK:ERROR]\n");
 						cse4589_print_and_log("[BLOCK:END]\n");
 					}
 				}
 				if(tokens[0]=="UNBLOCK" && clientLoggedIn == 1)
 				{
-					int retValue = send(sockFd,input.c_str(),input.length(),0);
-					if(retValue == -1)
+					if(validateIP(input)==1)
 					{
-						cse4589_print_and_log("[UNBLOCK:ERROR]\n");
-						cse4589_print_and_log("[UNBLOCK:END]\n");
+						send(sockFd,input.c_str(),input.length(),0);
 					}
 					else
 					{
-						cse4589_print_and_log("[UNBLOCK:SUCCESS]\n");
-						cse4589_print_and_log("[UNBLOCK:END]\n");
+						cse4589_print_and_log("[UNBLOCK:ERROR]\n");
+						cse4589_print_and_log("[UNBLOCK:END]\n");	
 					}
 				}
 			}
@@ -383,14 +403,46 @@ void loginToServer(string ip,string port,string lport)
 						{
 							buff[recvLen]='\0';
 							string tempString(buff);
-		    	 			string originalMessage = getOriginalMessage(tempString);
-		    	 			string sendersIp = getSendersIp(tempString);
-							getIP("IP",0);
-							string ip(systemIp);
-							cse4589_print_and_log("[RECEIVED:SUCCESS]\n");
-							cse4589_print_and_log("msg from:%s\n[msg]:%s\n",sendersIp.c_str(),originalMessage.c_str());
-							cse4589_print_and_log("[RECEIVED:END]\n");
-							memset(buff,'\0',sizeof(buff));
+							if(tempString=="BLOCKSUCCESS")
+							{
+								cse4589_print_and_log("[BLOCK:SUCCESS]\n");
+								cse4589_print_and_log("[BLOCK:END]\n");
+							}
+							else
+							{
+								if(tempString=="BLOCKFAILURE")
+								{
+									cse4589_print_and_log("[BLOCK:ERROR]\n");
+									cse4589_print_and_log("[BLOCK:END]\n");
+								}
+								else
+								{
+									if(tempString == "UNBLOCKSUCCESS")
+									{
+										cse4589_print_and_log("[UNBLOCK:SUCCESS]\n");
+										cse4589_print_and_log("[UNBLOCK:END]\n");			
+									}
+									else
+									{
+										if(tempString == "UNBLOCKFAILURE")
+										{
+											cse4589_print_and_log("[UNBLOCK:ERROR]\n");
+											cse4589_print_and_log("[UNBLOCK:END]\n");	
+										}
+										else
+										{
+											string originalMessage = getOriginalMessage(tempString);
+						    	 			string sendersIp = getSendersIp(tempString);
+											getIP("IP",0);
+											string ip(systemIp);
+											cse4589_print_and_log("[RECEIVED:SUCCESS]\n");
+											cse4589_print_and_log("msg from:%s\n[msg]:%s\n",sendersIp.c_str(),originalMessage.c_str());
+											cse4589_print_and_log("[RECEIVED:END]\n");
+											memset(buff,'\0',sizeof(buff));									
+										}
+									}
+								}
+							}
 						}	
 					}
 				}
@@ -490,10 +542,7 @@ void startServer(string serverPort)
 							}
 							if(tokens[0]=="BLOCKED")
 							{
-								string targetIp,tmp;
-								stringstream ssMessage(cmd);
-								ssMessage>>tmp;
-								getline(ssMessage,targetIp);
+								string targetIp = skipFirstWord(cmd);
 								displayListOfBlockedClients(rtrim(ltrim(targetIp)),fdMax);	
 							}		
 						}
@@ -522,28 +571,43 @@ void startServer(string serverPort)
 								if(stringMessage=="REMOVE")
 								{
 									FD_CLR(i,&globalMasterSet);
+									clientList = getDetailsOfConnectedClients(fdMax,sockFd,globalMasterSet);
+									//broadcastUpdatedLoggedInList(fdMax,sockFd,globalMasterSet);
 								}
 								else
 								{
-									std::string input = stringMessage;
-									std::string firstWord = input.substr(0, input.find(" "));
+									string input = stringMessage;
+									string firstWord = input.substr(0, input.find(" "));
 									if(firstWord == "BLOCK")
 									{	
-										string iptoblock,tmp;
-										stringstream ssMessage(stringMessage);
-										ssMessage>>tmp;
-										getline(ssMessage,iptoblock);
-										blockList.push_back(make_pair(getIpfromSocket(i),rtrim(ltrim(iptoblock))));
+										string iptoblock = skipFirstWord(stringMessage);
+										if(checkBlockList(getIpfromSocket(i),rtrim(ltrim(iptoblock))) == 0){
+											blockList.push_back(make_pair(getIpfromSocket(i),rtrim(ltrim(iptoblock))));
+											string blockSuccess = "BLOCKSUCCESS";
+											send(i,blockSuccess.c_str(),blockSuccess.length(),0);
+										}
+										else
+										{
+											string blockFailure = "BLOCKFAILURE";
+											send(i,blockFailure.c_str(),blockFailure.length(),0);
+										}
 									}
 									else
 									{
 										if(firstWord == "UNBLOCK")
 										{
-											string iptounblock,tmp;
-											stringstream ssMessage(stringMessage);
-											ssMessage>>tmp;
-											getline(ssMessage,iptounblock);
+											string iptounblock = skipFirstWord(stringMessage);
 											int unblockSuccess = unblockIp(getIpfromSocket(i),rtrim(ltrim(iptounblock)));
+											if(unblockSuccess==1)
+											{
+												string unblockSuccessString = "UNBLOCKSUCCESS";
+												send(i,unblockSuccessString.c_str(),unblockSuccessString.length(),0);
+											}
+											else
+											{
+												string unblockFailureString = "UNBLOCKFAILURE";
+												send(i,unblockFailureString.c_str(),unblockFailureString.length(),0);
+											}
 										}
 										else
 										{
@@ -582,11 +646,9 @@ void receiveAndRelay(string message,int listeningSocket,int connectionSocket,int
 	{
 		if(intr=="SEND")
 		{
-			string tmp,originalMessage,recpIp,intr;
-			stringstream ssMessage(message);
+			string originalMessage = skipTwoWords(message);
+			string recpIp;
 			stringstream ssIp(message);
-			ssMessage>>tmp>>tmp;
-			getline(ssMessage,originalMessage);
 			int i=0;
 			while(getline(ssIp,intr,' '))
 			{
@@ -601,11 +663,7 @@ void receiveAndRelay(string message,int listeningSocket,int connectionSocket,int
 		}
 		if(intr=="BROADCAST")
 		{
-			string tmp,originalMessage,recpIp,intr;
-			stringstream ssMessage(message);
-			stringstream ssIp(message);
-			ssMessage>>tmp;
-			getline(ssMessage,originalMessage);
+			string originalMessage = skipFirstWord(message);
 			broadcastMessage(originalMessage,"255.255.255.255",listeningSocket,connectionSocket,maximumSocket,masterlist);
 			break;
 		}
@@ -677,6 +735,10 @@ void unicastMessage(string message,string recpIp,int maximumSocket)
 						cse4589_print_and_log("[RELAYED:END]\n");
 						break;
 					}
+					// else
+					// {
+					// 	
+					// }
 				}
 				else
 				{
@@ -696,6 +758,7 @@ void displayListOfBlockedClients(string targetIp,int maximumSocket)
 		{
 			blockedListstruct b;
 			struct in_addr ipv4addr;
+			memset(&ipv4addr,0,sizeof(ipv4addr));
 			inet_pton(AF_INET,blockList[i].second.c_str(), &ipv4addr);
 			struct hostent *he;
 			he = gethostbyaddr(&ipv4addr, sizeof ipv4addr, AF_INET);
@@ -745,6 +808,7 @@ int getPortFromIpForBlockedList(string ipForPort,int maximumSocket)
 
 vector<loggedInDetails> getDetailsOfConnectedClients(int maximumSocket,int serverSocket,fd_set globalmaster)
 {
+	clientList.clear();
 	vector<loggedInDetails> loggedinvector;
 	for(int j=0;j<=maximumSocket;j++)
 	{
@@ -842,4 +906,95 @@ int unblockIp(string requestFromIp,string requestedIp)
 		}
 	}
 	return returnValue;
+}
+
+string skipFirstWord(string inputString)
+{
+	string returnString,tmp;
+	stringstream ssMessage(inputString);
+	ssMessage>>tmp;
+	getline(ssMessage,returnString);
+	return returnString;
+}
+
+string skipTwoWords(string inputString)
+{
+	string returnString,tmp;
+	stringstream ssMessage(inputString);
+	ssMessage>>tmp>>tmp;
+	getline(ssMessage,returnString);
+	return returnString;
+}
+
+int validateIP(string inputString)
+{
+	int isValidReceiver = 1;
+	string receiversIp = skipFirstWord(inputString);
+	receiversIp = rtrim(ltrim(receiversIp));
+	int validIporNot = validateIpAndPort(receiversIp);
+	if(validIporNot == 0){
+		isValidReceiver=0;
+	}
+
+	int isInLocalList = checkLocalList(receiversIp);
+	if(isInLocalList== 0)
+		isValidReceiver=0;
+
+	return isValidReceiver;
+}
+
+int validateIpAndPort(string ip)
+{
+	int isIpValid = 1;
+    struct sockaddr_in sa;
+    memset(&sa, 0, sizeof(sa));
+    ip = rtrim(ltrim(ip));
+    int result = inet_pton(AF_INET, ip.c_str(), &(sa.sin_addr));
+    if (result!=1){
+    	isIpValid = 0;
+    }
+    return isIpValid;
+}
+
+int checkLocalList(string inputIp)
+{
+	int isInList = 0;
+	for(int i=0;i<clientList.size();i++)
+	{
+		if(clientList[i].ip == inputIp)
+		{
+			isInList = 1;
+		}
+	}
+	return isInList;
+}
+
+int validateIForSending(string inputString)
+{
+	int isValidReceiver = 1;
+
+	stringstream ss(inputString);
+	string intr;
+	string receiversIp;
+	int i=0;
+	while(getline(ss,intr,' '))
+	{
+		if(i==1)
+		{
+			receiversIp=intr;
+			break;
+		}
+		i++;
+	}
+	receiversIp = rtrim(ltrim(receiversIp));
+	int validIporNot = validateIpAndPort(receiversIp);
+	if(validIporNot == 0){
+		isValidReceiver=0;
+	}
+
+	int isInLocalList = checkLocalList(receiversIp);
+	if(isInLocalList== 0)
+		isValidReceiver=0;
+
+	return isValidReceiver;		
 }
