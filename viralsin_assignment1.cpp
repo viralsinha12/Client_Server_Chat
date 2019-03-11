@@ -585,7 +585,6 @@ void startServer(string serverPort)
 								{
 									FD_CLR(i,&globalMasterSet);
 									clientList = getDetailsOfConnectedClients(fdMax,sockFd,globalMasterSet);
-									//broadcastUpdatedLoggedInList(fdMax,sockFd,globalMasterSet);
 								}
 								else
 								{
@@ -968,8 +967,9 @@ int validateIpAndPort(string ip,string port)
     }
     if(!port.empty())
     {
-    	if(checkForValidPort(port)==0)
+    	if(checkForValidPort(rtrim(ltrim(port)))==0){
     		isIpValid = 0;
+    	}
 	}
     return isIpValid;
 }
@@ -977,7 +977,7 @@ int validateIpAndPort(string ip,string port)
 int checkForValidPort(string port)
 {
 	int isValidPort = 1;
-	for(int i=0;port.length();i++)
+	for(int i=0;i<port.length();i++)
 	{
 		if(port[i]=='0' || port[i]=='1' || port[i]=='2'|| port[i]=='3'|| port[i]=='4'|| port[i]=='5'|| port[i]=='6'|| port[i]=='7' || port[i]=='8' || port[i]=='9')
 		{
@@ -989,6 +989,9 @@ int checkForValidPort(string port)
 			break;
 		}
 	}
+	if(atoi(port.c_str())<0 || atoi(port.c_str())>65535)
+		isValidPort=0;
+
 	return isValidPort;
 }
 
@@ -1038,9 +1041,7 @@ int validateIForSending(string inputString)
 int checkBlockedListInServer(string inputString)
 {
 	int isValidIp = 1;
-	string queryIp = skipFirstWord(inputString);
-	queryIp = rtrim(ltrim(queryIp));
-	int validIporNot = validateIpAndPort(queryIp,"");
+	int validIporNot = validateIpAndPort(inputString,"");
 	if(validIporNot == 0){
 		isValidIp=0;
 		return isValidIp;
@@ -1048,7 +1049,7 @@ int checkBlockedListInServer(string inputString)
 
 	for(int i=0;i<blockListByClient.size();i++)
 	{
-		if(blockListByClient[i].ip == queryIp)
+		if(blockListByClient[i].ip == inputString)
 		{
 			isValidIp = 1;
 		}
