@@ -79,6 +79,7 @@ int validateIpAndPort(string);
 int checkLocalList(string);
 int validateIP(string);
 int validateIForSending(string);
+int checkBlockedListInServer(string);
 
 struct loggedInDetails{
 		string name;
@@ -542,8 +543,15 @@ void startServer(string serverPort)
 							}
 							if(tokens[0]=="BLOCKED")
 							{
-								string targetIp = skipFirstWord(cmd);
-								displayListOfBlockedClients(rtrim(ltrim(targetIp)),fdMax);	
+
+								string targetIp = rtrim(ltrim(skipFirstWord(cmd)));
+								if(checkBlockedListInServer(targetIp)==1)
+									displayListOfBlockedClients(targetIp,fdMax);	
+								else
+								{
+									cse4589_print_and_log("[BLOCKED:ERROR]\n");
+									cse4589_print_and_log("[BLOCKED:END]\n");
+								}
 							}		
 						}
 					else
@@ -997,4 +1005,25 @@ int validateIForSending(string inputString)
 		isValidReceiver=0;
 
 	return isValidReceiver;		
+}
+
+int checkBlockedListInServer(string inputString)
+{
+	int isValidIp = 1;
+	string queryIp = skipFirstWord(inputString);
+	queryIp = rtrim(ltrim(queryIp));
+	int validIporNot = validateIpAndPort(queryIp);
+	if(validIporNot == 0){
+		isValidIp=0;
+		return isValidIp;
+	}
+
+	for(int i=0;i<blockListByClient.size();i++)
+	{
+		if(blockListByClient[i].ip == queryIp)
+		{
+			isValidIp = 1;
+		}
+	}
+	return isValidIp;
 }
