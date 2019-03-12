@@ -33,6 +33,9 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <sys/time.h>
+
+//used external libraries
+//used vector;stdlib;algorithm(sort);msgpack(for serialization/deserialation of data)
 #include <vector>
 #include <sstream>
 #include <stdlib.h>
@@ -82,6 +85,8 @@ int validateIForSending(string);
 int checkBlockedListInServer(string);
 int checkForValidPort(string);
 
+//Reference : https://stackoverflow.com/questions/40896477/using-msgpack-to-encode-a-user-defined-structure
+//MSGPACK requires this method MSGAPACK to be defined for it to be considered a MSGPACK type
 struct loggedInDetails{
 		string name;
 		string ip;
@@ -97,11 +102,13 @@ struct blockedListstruct{
 		int port;
 };
 
+//Inserting into structure on the basis of port number
 bool comparePorts(loggedInDetails first,loggedInDetails second)
 {
     return first.port < second.port;
 }
 
+//Inserting into structure on the basis of port number
 bool comparePortsForBlockedListDisplay(blockedListstruct first,blockedListstruct second)
 {
     return first.port < second.port;
@@ -134,6 +141,7 @@ int main(int argc, char **argv)
 		{
 	    	string intr,input;
 	    	vector<string> commandTokens;
+	    	//Reference:https://en.cppreference.com/w/cpp/string/basic_string/getline
 	    	getline(cin,input);
 	    	stringstream ss(input);
 	    	while(getline(ss,intr,' '))
@@ -203,8 +211,10 @@ void getIP(char *cmd,int print)
 	struct sockaddr_in sa;
 	memset(&sa,0,sizeof(sa));
 	socklen_t len = sizeof(sa);
-	getsockname(sockFd,(struct sockaddr *)&sa,&len);
+	//Reference : https://support.sas.com/documentation/onlinedoc/sasc/doc700/html/lr2/zockname.htm//
+	getsockname(sockFd,(struct sockaddr *)&sa,&	len);
 	memset(systemIp,'\0',sizeof(systemIp));
+	//beej//
 	inet_ntop(addressInfo->ai_family, &sa.sin_addr, systemIp, sizeof(systemIp));
 	if(print==1)
 		commonPrintFunctionForSuccess("IP",systemIp);
@@ -238,8 +248,9 @@ void loginToServer(string ip,string port,string lport)
 	fd_set write_fds;
 	FD_ZERO(&master);
 	FD_ZERO(&write_fds);
+	//adding input fd to the main set - 0 = STDIN
 	FD_SET(0,&master);
-	fdMax = STDIN_FILENO;
+	fdMax = 0;
 	char ipstr[INET_ADDRSTRLEN];
 	struct  addrinfo hints;
 	struct  addrinfo *addressInfo;
@@ -268,14 +279,10 @@ void loginToServer(string ip,string port,string lport)
 	if(connect(sockFd,addressInfo->ai_addr,addressInfo->ai_addrlen)==-1)
 	{
 		clientLoggedIn=0;
-		//cse4589_print_and_log("[LOGIN:ERROR]\n");
-		//cse4589_print_and_log("[LOGIN:END]\n");
 	}
 	else
 	{
 		clientLoggedIn=1;
-		//cse4589_print_and_log("[LOGIN:SUCCESS]\n");
-		//cse4589_print_and_log("[LOGIN:END]\n");
 		while(1)
 		{
 			write_fds = master;
@@ -412,6 +419,7 @@ void loginToServer(string ip,string port,string lport)
 					int recvLen = recv(sockFd,buff,sizeof(buff),0);
 					if(recvLen >0)
 					{
+						//Reference : http://www.thomaswhitton.com/blog/2013/07/03/binary-message-format-c-plus-plus-examples/
 						try{
 							msgpack::object_handle oh = msgpack::unpack(buff,sizeof(buff));
 								msgpack::object obj = oh.get();
@@ -478,7 +486,7 @@ void startServer(string serverPort)
 	FD_ZERO(&globalMasterSet);
 	FD_ZERO(&master);FD_ZERO(&read_fds);FD_ZERO(&write_fds);
 	FD_SET(0,&master);
-	fdMax = STDIN_FILENO;
+	fdMax = 0;
 	char ipstr[INET_ADDRSTRLEN];
 	struct  addrinfo hints;
 	struct  addrinfo *addressInfo;
@@ -486,8 +494,7 @@ void startServer(string serverPort)
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
-	if(getaddrinfo(NULL,serverPort.c_str(),&hints,&addressInfo)==-1)
-		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(addressStatus));
+	getaddrinfo(NULL,serverPort.c_str(),&hints,&addressInfo);
 
 	if((sockFd = socket(addressInfo->ai_family, addressInfo->ai_socktype, addressInfo->ai_protocol))== -1)
 		perror("listener: socket");
@@ -520,14 +527,17 @@ void startServer(string serverPort)
         			globalMasterSet = master;		
 
         			clientList = getDetailsOfConnectedClients(fdMax,sockFd,globalMasterSet);
+
+        			//Reference : http://www.thomaswhitton.com/blog/2013/07/03/binary-message-format-c-plus-plus-examples/
         			msgpack::sbuffer sbuf;
         			msgpack::packer<msgpack::sbuffer> pk(&sbuf);
         			pk.pack(clientList);
         			send(newSocketFd,sbuf.data(),sbuf.size(),0);
+        			
 				}	
 				else
 				{
-					if(i == STDIN_FILENO)
+					if(i == 0)
 					{
 							string cmd;
 							vector<string> tokens;
@@ -562,7 +572,6 @@ void startServer(string serverPort)
 							}
 							if(tokens[0]=="BLOCKED")
 							{
-
 								string targetIp = rtrim(ltrim(skipFirstWord(cmd)));
 								if(checkBlockedListInServer(targetIp)==1)
 									displayListOfBlockedClients(targetIp,fdMax);	
@@ -761,10 +770,6 @@ void unicastMessage(string message,string recpIp,int maximumSocket)
 						cse4589_print_and_log("[RELAYED:END]\n");
 						break;
 					}
-					// else
-					// {
-					// 	
-					// }
 				}
 				else
 				{
@@ -852,7 +857,9 @@ vector<loggedInDetails> getDetailsOfConnectedClients(int maximumSocket,int serve
 				string receviersip(ipBuf);
 				struct hostent *he;
 				struct in_addr ipv4addr;
+				https://beej.us/guide/bgnet/html/single/bgnet.html#inet_ntopman
 				inet_pton(AF_INET,receviersip.c_str(), &ipv4addr);
+				//Reference : https://beej.us/guide/bgnet/html/single/bgnet.html#gethostbynameman
 				he = gethostbyaddr(&ipv4addr, sizeof ipv4addr, AF_INET);
 				loggedInDetails l;
 				l.name=he->h_name;
@@ -866,12 +873,17 @@ vector<loggedInDetails> getDetailsOfConnectedClients(int maximumSocket,int serve
 	return loggedinvector;
 }
 
+
+//Reference : http://www.cplusplus.com/reference/string/string/find_first_not_of/
+//https://www.techiedelight.com/trim-string-cpp-remove-leading-trailing-spaces/
 string ltrim(string s)
 {
 	size_t start = s.find_first_not_of(" ");
 	return (start == string::npos) ? "" : s.substr(start);
 }
 
+//Reference  : http://www.cplusplus.com/reference/string/string/find_last_not_of/
+//https://www.techiedelight.com/trim-string-cpp-remove-leading-trailing-spaces/
 string rtrim(string s)
 {
 	size_t end = s.find_last_not_of(" ");
@@ -934,6 +946,8 @@ int unblockIp(string requestFromIp,string requestedIp)
 	return returnValue;
 }
 
+//Reference for extracting string from inpu
+//http://www.cplusplus.com/reference/istream/istream/operator%3E%3E/
 string skipFirstWord(string inputString)
 {
 	string returnString,tmp;
@@ -943,6 +957,9 @@ string skipFirstWord(string inputString)
 	return returnString;
 }
 
+
+//Reference for extracting string from inpu
+//http://www.cplusplus.com/reference/istream/istream/operator%3E%3E/
 string skipTwoWords(string inputString)
 {
 	string returnString,tmp;
@@ -975,6 +992,7 @@ int validateIpAndPort(string ip,string port)
     struct sockaddr_in sa;
     memset(&sa, 0, sizeof(sa));
     ip = rtrim(ltrim(ip));
+    //Reference from beej to check for proper IP
     int result = inet_pton(AF_INET, ip.c_str(), &(sa.sin_addr));
     if (result!=1){
     	isIpValid = 0;
@@ -1025,7 +1043,6 @@ int checkLocalList(string inputIp)
 int validateIForSending(string inputString)
 {
 	int isValidReceiver = 1;
-
 	stringstream ss(inputString);
 	string intr;
 	string receiversIp;
