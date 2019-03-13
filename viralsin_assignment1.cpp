@@ -33,9 +33,6 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <sys/time.h>
-
-//used external libraries
-//used vector;stdlib;algorithm(sort);msgpack(for serialization/deserialation of data)
 #include <vector>
 #include <sstream>
 #include <stdlib.h>
@@ -96,27 +93,39 @@ struct loggedInDetails{
 
 vector<loggedInDetails> getDetailsOfConnectedClients(int,int,fd_set);
 
-struct blockedListstruct{
+struct blockedListProto{
 		string name;
 		string ip;
 		int port;
 };
 
+struct bufferProto{
+		string fromIp;
+		string toIp;
+		string message;
+};
+
+
+void checkforMessagesInBuffer(int,int);
+vector<bufferProto> bufferList;
 //Inserting into structure on the basis of port number
+//https://stackoverflow.com/questions/4892680/sorting-a-vector-of-structs
 bool comparePorts(loggedInDetails first,loggedInDetails second)
 {
     return first.port < second.port;
 }
 
 //Inserting into structure on the basis of port number
-bool comparePortsForBlockedListDisplay(blockedListstruct first,blockedListstruct second)
+//https://stackoverflow.com/questions/4892680/sorting-a-vector-of-structs
+bool comparePortsForBlockedListDisplay(blockedListProto first,blockedListProto second)
 {
     return first.port < second.port;
 }
 
+vector<blockedListProto> blockListByClient;
 vector<loggedInDetails> clientList;
 vector< pair<string,string> > blockList;
-vector<blockedListstruct> blockListByClient;
+
 
 fd_set globalMasterSet;
 char systemIp[INET_ADDRSTRLEN];
@@ -350,6 +359,7 @@ void loginToServer(string ip,string port,string lport)
 					clientLoggedIn=0;
 					string removeSocketString = "REMOVE";
 					send(sockFd,removeSocketString.c_str(),removeSocketString.length(),0);
+					close(sockFd);
 					cse4589_print_and_log("[LOGOUT:SUCCESS]\n");
 					cse4589_print_and_log("[LOGOUT:END]\n");
 					break;
@@ -414,7 +424,7 @@ void loginToServer(string ip,string port,string lport)
 			{
 				if(FD_ISSET(sockFd,&write_fds))
 				{
-					char buff[1000];
+					char buff[5000];
 					memset(buff,'\0',sizeof(buff));
 					int recvLen = recv(sockFd,buff,sizeof(buff),0);
 					if(recvLen >0)
@@ -429,6 +439,7 @@ void loginToServer(string ip,string port,string lport)
 						}
 						catch(...)
 						{
+
 							buff[recvLen]='\0';
 							string tempString(buff);
 							if(tempString=="BLOCKSUCCESS")
@@ -481,6 +492,7 @@ void loginToServer(string ip,string port,string lport)
 
 void startServer(string serverPort)
 {
+	
 	fd_set master;fd_set read_fds;fd_set write_fds;
 	int sockFd{}, fdMax{},newSocketFd, addressStatus;
 	FD_ZERO(&globalMasterSet);
@@ -533,7 +545,7 @@ void startServer(string serverPort)
         			msgpack::packer<msgpack::sbuffer> pk(&sbuf);
         			pk.pack(clientList);
         			send(newSocketFd,sbuf.data(),sbuf.size(),0);
-        			
+        			checkforMessagesInBuffer(newSocketFd,fdMax);
 				}	
 				else
 				{
@@ -607,6 +619,7 @@ void startServer(string serverPort)
 								if(stringMessage=="REMOVE")
 								{
 									FD_CLR(i,&globalMasterSet);
+									//FD_CLR(i,&master);
 									clientList = getDetailsOfConnectedClients(fdMax,sockFd,globalMasterSet);
 								}
 								else
@@ -751,6 +764,7 @@ void unicastMessage(string message,string recpIp,int maximumSocket)
 		socklen_t len = sizeof(connectedIp);				
 	 	if((getpeername(j,(struct sockaddr *)&connectedIp,&len)!=-1))
 	 	{
+	 		
 			char ipBuf[INET_ADDRSTRLEN];
 			struct sockaddr_in *ipv4 = (struct sockaddr_in *)&connectedIp;
 			void *addr = &ipv4->sin_addr; 
@@ -762,13 +776,24 @@ void unicastMessage(string message,string recpIp,int maximumSocket)
 				int isRecvIpBlocked = checkBlockList(receviersip,last_element);
 				if(isRecvIpBlocked == 0)
 				{
-					if(send(j,originalMessage.c_str(),originalMessage.length(),0) !=-1)
+					if(FD_ISSET(j,&globalMasterSet))
 					{	
-						string tempString = getOriginalMessage(originalMessage);
-			    		cse4589_print_and_log("[RELAYED:SUCCESS]\n");
-						cse4589_print_and_log("msg from:%s, to:%s\n[msg]:%s\n",last_element.c_str(),receviersip.c_str(),tempString.c_str());
-						cse4589_print_and_log("[RELAYED:END]\n");
-						break;
+						if(send(j,originalMessage.c_str(),originalMessage.length(),0) !=-1)
+						{	
+							string tempString = getOriginalMessage(originalMessage);
+			    			cse4589_print_and_log("[RELAYED:SUCCESS]\n");
+							cse4589_print_and_log("msg from:%s, to:%s\n[msg]:%s\n",last_element.c_str(),receviersip.c_str(),tempString.c_str());
+							cse4589_print_and_log("[RELAYED:END]\n");
+							break;
+						}
+					}
+					else
+					{
+						bufferProto obj;
+						obj.fromIp = last_element;
+						obj.toIp = receviersip;
+						obj.message = originalMessage;
+						bufferList.push_back(obj);
 					}
 				}
 				else
@@ -787,7 +812,7 @@ void displayListOfBlockedClients(string targetIp,int maximumSocket)
 	{
 		if(blockList[i].first == targetIp)
 		{
-			blockedListstruct b;
+			blockedListProto b;
 			struct in_addr ipv4addr;
 			memset(&ipv4addr,0,sizeof(ipv4addr));
 			inet_pton(AF_INET,blockList[i].second.c_str(), &ipv4addr);
@@ -1071,6 +1096,7 @@ int validateIForSending(string inputString)
 
 int checkBlockedListInServer(string inputString)
 {
+
 	int isValidIp = 1;
 	int validIporNot = validateIpAndPort(inputString,"");
 	if(validIporNot == 0){
@@ -1086,4 +1112,17 @@ int checkBlockedListInServer(string inputString)
 		}
 	}
 	return isValidIp;
+}
+
+void checkforMessagesInBuffer(int clientSocket,int maximumSocket)
+{
+
+	string clientIp = getIpfromSocket(clientSocket);
+	for(int i=0;i<bufferList.size();i++)
+	{
+		if(bufferList[i].toIp == clientIp)
+		{
+			unicastMessage(bufferList[i].message,clientIp,maximumSocket);
+		}
+	}
 }
